@@ -1,0 +1,1051 @@
+Act as a senior full-stack developer, database architect, real-time multiplayer game engineer, and mobile UI/UX specialist.
+
+Modify my existing 10:20 Bingo Championship application to fix the current bugs, improve user experience, strengthen account and role separation, and make the gameplay more accurate and transparent.
+
+Inspect the existing codebase, database schema, authentication system, card-management logic, game lifecycle, winner verification, and UI components before making changes.
+
+Implement the following requirements directly in the existing project.
+
+Important: Do not rebuild the application from scratch, remove existing working features, or replace real backend functionality with mock data. Preserve the current technology stack and visual identity wherever possible. Update the existing architecture only when necessary to meet these requirements correctly.
+
+PART 1: USER ACCOUNT ISOLATION AND CARD PERSISTENCE
+
+1. Fix Card Leakage Between User Accounts
+
+Current problem
+
+When one user logs out and another user logs in, the second user can see the cards used by the previous user. This is incorrect and must be fixed.
+
+Required behavior
+
+Every user's cards must be isolated by the authenticated user's unique ID.
+
+Each user's generated cards must be associated with the correct user ID in the database.
+
+When a user logs in, load only that user's saved cards.
+
+When the user logs out, clear the previous user's card data from client-side application state and any user-specific caches.
+
+When another user logs in, initialize the interface using that user's own saved cards.
+
+Never display another user's cards simply because they exist in the same game or browser session.
+
+Ensure that switching accounts does not reuse stale card data from React state, local storage, session storage, cached API responses, or other client-side persistence.
+
+Enforce ownership on the backend. A user must not be able to retrieve, edit, delete, register, or claim another user's private cards by changing an ID in an API request.
+
+Use the authenticated user's identity from the trusted authentication session. Do not trust a user ID supplied by the frontend as the sole authorization mechanism.
+
+Acceptance criteria
+
+User A logs in and creates five cards.
+
+User A logs out.
+
+User B logs in using the same device.
+
+User B sees only cards belonging to User B.
+
+User A's cards remain safely stored and are available again when User A logs back in.
+
+User B cannot access User A's cards through the UI or backend APIs.
+
+2. Implement Correct Daily Initialization and Card Persistence
+
+Required behavior
+
+When a user opens the game for the first time during a new calendar day, the main game screen must not automatically display cards from previous days.
+
+However, previously generated cards must remain saved and recoverable if the user has not deleted them.
+
+Implement the following behavior:
+
+First visit of the day
+
+Show the main game interface without automatically displaying previous cards.
+
+Keep previously saved cards in the database.
+
+Do not delete or overwrite saved cards.
+
+Do not automatically register any card.
+
+Provide a clear way to access saved cards from previous games or days.
+
+Returning later on the same day
+
+Restore the user's active card display and applicable current-day state.
+
+Keep cards the user has not deleted.
+
+Restore valid registered cards and their registration statuses from the database.
+
+Accessing previous cards
+
+Provide a separate saved-cards or card-history section.
+
+Allow the user to retrieve previously saved cards when needed.
+
+Restore the correct ownership, registration status, and game association.
+
+Never automatically register a previously generated or previously used card simply because it is restored.
+
+Important distinction
+
+Separate these concepts in the data model:
+
+Card creation date.
+
+Card owner.
+
+Game association.
+
+Card registration status.
+
+Card display or active-session state.
+
+Card deletion status.
+
+Do not use a single local-storage flag to determine all of these states.
+
+Use the application's configured timezone to determine the beginning of a calendar day. Store timestamps consistently, preferably in UTC, and calculate the applicable day boundary using the configured timezone.
+
+Do not create a new game automatically just because a new day begins. Daily initialization should control the user's card display and session state, not override the host's authoritative game lifecycle.
+
+3. Remove Automatic Card Registration
+
+Current problem
+
+The first card appears to be registered automatically. This must be corrected.
+
+Required behavior
+
+Generating a card and registering a card must be two separate actions.
+
+When a user generates one or more cards:
+
+Create the cards.
+
+Save them under the authenticated user's account.
+
+Display them as unregistered.
+
+Show a clear Register Card button on each eligible card.
+
+A card must only become registered when the user explicitly clicks Register Card and the backend confirms successful registration.
+
+Do not automatically register:
+
+The first generated card.
+
+Cards generated in a batch.
+
+Cards restored from previous sessions.
+
+Cards loaded from saved history.
+
+Cards restored after logging out and logging back in.
+
+If registration is already closed or the game has started, prevent registration and explain why.
+
+Use an atomic backend transaction to prevent two users from registering the same card.
+
+Display the appropriate registration status on each card:
+
+Not Registered.
+
+Registered.
+
+Registration Failed.
+
+Already Registered by Another Player.
+
+Blocked, where applicable.
+
+Do not change the original owner of a registered card.
+
+PART 2: SEPARATE PLAYER AND HOST/ADMIN APPLICATION AREAS
+
+4. Implement Independent Player and Host/Admin Interfaces
+
+Current problem
+
+The existing method of switching between user and host/admin roles must be removed or replaced.
+
+Required behavior
+
+The application must have two distinct role-based interfaces:
+
+Player interface
+
+View the active game.
+
+Generate cards.
+
+Register eligible cards.
+
+Mark called numbers.
+
+View game information.
+
+Submit Bingo claims.
+
+View blocked cards and confirmed winners.
+
+Access personal cards, profile, settings, and history.
+
+Host/Admin interface
+
+Create or configure the game.
+
+Select the active winning rule.
+
+Control registration.
+
+Start the game.
+
+Configure the countdown and number-calling interval.
+
+Monitor called numbers.
+
+Review claims.
+
+Monitor blocked cards.
+
+View confirmed winners.
+
+End or cancel the game when authorized.
+
+Access appropriate game-management and audit information.
+
+Role assignment and access control
+
+Use the application's trusted authentication system and backend role records.
+
+Implement distinct roles such as:
+
+Player.
+
+Host.
+
+Administrator.
+
+Do not allow ordinary players to become hosts by clicking a switch, changing a frontend variable, modifying local storage, or visiting a hidden URL.
+
+Remove the existing unrestricted role-switching control.
+
+If an authorized host or administrator needs to access the management interface, provide a dedicated navigation item or a separate protected route that appears only for authorized accounts.
+
+For users who have only the player role, do not display the host/admin entry point.
+
+For users who have both player and host permissions, allow access to both interfaces through explicit navigation, while enforcing the permissions independently on the backend.
+
+Security requirements
+
+Protect host/admin routes.
+
+Protect all host/admin APIs.
+
+Verify role permissions on every privileged operation.
+
+Prevent role escalation through client requests.
+
+Keep game control operations server-authoritative.
+
+Record important administrative actions.
+
+Do not rely on hiding buttons as the only security measure.
+
+PART 3: GAME START COUNTDOWN
+
+5. Add a 15-Second Pre-Game Countdown
+
+Required behavior
+
+When an authorized host clicks Start Game, do not begin calling numbers immediately.
+
+Instead, initiate a server-controlled pre-game countdown.
+
+Display a prominent message on the player and host interfaces:
+
+"The game is starting in 15 seconds, get ready!"
+
+Display a live countdown:
+
+15, 14, 13, 12 ... 3, 2, 1.
+
+Countdown workflow
+
+The host clicks Start Game.
+
+The backend validates the game configuration and host permissions.
+
+The backend atomically changes the game into a pre-start state.
+
+Registration closes.
+
+The selected winning rule and game configuration are locked.
+
+The backend records the countdown start time and scheduled deadline.
+
+All connected players receive the countdown event.
+
+The player interface displays the message and remaining time.
+
+The host interface displays the same countdown.
+
+After 15 seconds, the countdown finishes.
+
+The game transitions to In Progress.
+
+Automatic number calling begins after an additional five-second delay.
+
+Use a server-authoritative deadline rather than relying on individual clients' local countdown timers.
+
+Clients should calculate the displayed remaining time from the authoritative server timestamp and synchronize with the backend as necessary.
+
+Countdown cancellation and reliability
+
+Prevent duplicate countdowns when the Start Game button is clicked multiple times.
+
+Do not create multiple background timers.
+
+Do not allow ordinary players to start or cancel the countdown.
+
+If the host cancels the countdown before gameplay begins, stop the scheduled number-calling job and return to an appropriate pre-game state.
+
+If the server restarts during the countdown, restore the countdown from its saved deadline.
+
+Ensure that all clients display the same countdown deadline.
+
+The five-second delay after the countdown must also be server-controlled.
+
+Do not start the number-calling scheduler until that delay has expired.
+
+PART 4: BINGO CLAIM WINDOW AND WINNER TRANSPARENCY
+
+6. Implement a 15-Second Winner Claim Window
+
+Current problem
+
+The application should not immediately celebrate the first card that claims Bingo. A single player may have multiple registered cards, and other players must have a fair opportunity to submit their claims.
+
+Required behavior
+
+When the backend receives the first valid Bingo claim, initiate a 15-second claim window.
+
+Display this message to all connected players:
+
+"A winner has been found! Claim Bingo within 15 seconds before the game is closed."
+
+Display a visible countdown timer:
+
+15, 14, 13 ... 3, 2, 1.
+
+Use the wording above for the initial notification, but clearly distinguish between a preliminary claim and a confirmed winner.
+
+Important: Do not confirm the winner prematurely
+
+The first valid claim must trigger the claim window, not an immediate final winner announcement.
+
+During the 15-second window:
+
+Keep the game in a winner-verification or claim-window state.
+
+Allow other eligible players to submit claims using their other registered cards.
+
+Allow the same player to claim Bingo with multiple registered cards.
+
+Validate every claim independently against the official game history and the active winning rule.
+
+Prevent duplicate submissions for the same card from creating duplicate claim records.
+
+Record the server timestamp for each submitted claim.
+
+Show an appropriate notification to all connected players.
+
+A player must not be able to claim another player's card.
+
+Claim-window rules
+
+The first valid claim starts the authoritative 15-second deadline.
+
+The server records the claim and its timestamp.
+
+All connected clients receive the same deadline.
+
+Additional eligible claims submitted within the window must be evaluated and recorded.
+
+Claims that do not satisfy the winning rule must not be treated as winners.
+
+A false claim must follow the application's false-claim blocking policy.
+
+When the deadline expires, stop accepting new claims for that game.
+
+Finalize the eligible winner list and complete the game.
+
+Define the boundary precisely: a claim is eligible if it reaches the backend before the authoritative deadline and satisfies the verification rules.
+
+Process claims and the closing operation transactionally so that a request arriving near the deadline cannot create inconsistent results.
+
+Multiple winning cards
+
+The game must support multiple winning cards in the same game.
+
+For example:
+
+Player A claims with Card 102.
+
+Player A also claims with Card 105.
+
+Player B claims with Card 208.
+
+If all three cards independently satisfy the active winning rule and their claims are accepted within the window, record all three as winners.
+
+Do not restrict the winner list to one card or one user unless the game's configured rules explicitly require that behavior.
+
+Prevent premature celebrations
+
+During the countdown, display a neutral message such as:
+
+"Valid Bingo claim received. The claim window is open."
+
+Do not display the final winner celebration until:
+
+The claim window closes.
+
+All eligible claims have been processed.
+
+The final winners have been determined.
+
+Once finalized, show a clear game-completion announcement.
+
+Reliability requirements
+
+The claim-window deadline must be stored on the server.
+
+Client timers must be display-only.
+
+The claim window must survive browser refreshes, disconnects, and server restarts.
+
+Duplicate start events must not create multiple claim windows.
+
+The closing operation must be idempotent.
+
+No claim may be accepted after the authoritative deadline.
+
+7. Display Winner Card IDs and Their Full Cards
+
+After the claim window closes, display the final winner information.
+
+Create a Winners section that displays:
+
+Winner's public display name or approved identifier.
+
+Winning card ID.
+
+Claim verification status.
+
+Winning pattern.
+
+Confirmation timestamp.
+
+Prize details, if configured.
+
+If a player wins with more than one card, display each winning card separately.
+
+Clickable winning card IDs
+
+Every winning card ID must be clickable.
+
+When a user clicks a winning card ID:
+
+Open a modal, dialog, or dedicated card-detail view.
+
+Display the complete 5 × 5 winning card.
+
+Highlight the B-I-N-G-O column labels.
+
+Highlight the numbers that were officially called.
+
+Highlight the winning pattern.
+
+Clearly show the FREE center space.
+
+Display the game's final called-number history or relevant verification details.
+
+Identify the card's confirmed winning status.
+
+This feature is intended to improve transparency and allow players to inspect the winning cards.
+
+Transparency and privacy
+
+Winning cards and the evidence needed to verify them should be viewable by all participants in the completed game.
+
+Do not expose private information unrelated to the winning claim, such as email addresses, phone numbers, authentication data, or internal security information.
+
+The displayed card must come from the authoritative registered-card record, not from a user-submitted screenshot or a client-side copy.
+
+PART 5: CORRECT BINGO NUMBER MARKING AND WINNER VALIDATION
+
+8. Fix Incorrect Winner Verification
+
+Current problem
+
+A card may be declared a winner even if a called number was never marked on that card by the player.
+
+This behavior must be corrected.
+
+A number being called does not automatically mean that the player has marked it.
+
+The application must distinguish between:
+
+Officially called numbers.
+
+Numbers manually marked by the player.
+
+Automatically marked numbers, if the user has explicitly enabled the supported auto-complete feature.
+
+Numbers that are unmarked.
+
+Required marking behavior
+
+For each registered card, maintain a separate marking state.
+
+When an official number is called:
+
+Highlight the number on the 75-number board.
+
+Add the number to the called-number history.
+
+Identify which registered cards contain that number.
+
+Allow the player to mark the corresponding number on each of their cards.
+
+Do not automatically mark the number on every card unless auto-complete is explicitly enabled and its rules permit it.
+
+When the player manually marks a number:
+
+Verify that the number exists on that card.
+
+Verify that the number has already been officially called.
+
+Update the marking state for that card only.
+
+Save the marking state if persistence is required by the current game architecture.
+
+Reflect the change in the UI.
+
+Prevent users from marking numbers that have not been called.
+
+Do not allow a number marked on one card to become marked on another card automatically unless the user has enabled the explicitly supported auto-complete setting.
+
+Winning verification must check two conditions
+
+For a manually marked card, a valid Bingo claim requires both:
+
+Every required number in the selected winning pattern has been officially called.
+
+Every required number in the selected winning pattern has been marked on that specific registered card, unless the explicitly enabled auto-complete feature has already marked it according to the application's rules.
+
+The FREE center space counts as marked.
+
+Do not infer a player's marked state from the official called-number history alone.
+
+Important implementation detail
+
+Use the server's official called-number history to validate that each marked number was eligible to be marked.
+
+Maintain a separate per-card marked-number state and synchronize it with the backend.
+
+At claim time, verify the card's registered number matrix, the official call sequence, the applicable marked-number state, and the active winning pattern.
+
+Do not accept arbitrary marked numbers supplied by the client without validation.
+
+If a player claims Bingo but one or more required numbers remain unmarked, reject the claim and apply the false-claim policy.
+
+Auto-complete setting
+
+The application will include an Auto Complete setting.
+
+When disabled:
+
+Players must manually mark the called numbers on each card.
+
+A called but unmarked number must not count toward a winning pattern.
+
+When enabled:
+
+Automatically mark eligible called numbers on the user's registered cards.
+
+Persist or reliably reconstruct the auto-marked state according to the game's rules.
+
+Ensure that the feature never marks numbers that have not been called.
+
+Display a clear indication that auto-complete is enabled.
+
+The server must validate the selected marking policy rather than trusting a client to claim that auto-complete was active.
+
+Do not silently change a player's marking mode during an active game.
+
+Acceptance tests
+
+Test all of the following:
+
+A called number that is marked correctly counts toward a pattern.
+
+A called number that remains unmarked does not count when auto-complete is disabled.
+
+A number that has not been called cannot be marked.
+
+A number marked on one card does not mark the same number on another card when auto-complete is disabled.
+
+The FREE center space is treated correctly.
+
+A card with all numbers called but an incomplete manual marking pattern is rejected when auto-complete is disabled.
+
+A card with a valid, fully marked pattern can win.
+
+A false claim is rejected and the correct card is blocked.
+
+The result remains consistent after reconnecting or refreshing the application.
+
+PART 6: USER INTERFACE AND LAYOUT IMPROVEMENTS
+
+9. Move the 75-Number Board into the Expanded Championship Card
+
+Current layout problem
+
+The 75-number Bingo board is displayed separately from the main expandable game-information card.
+
+Required change
+
+When the user clicks Show More on the "10:20 Bingo Championship" card, display the 75-number board inside that expanded card.
+
+The expanded card should contain the following elements in a logical order:
+
+Game title and game status.
+
+Game rules and active winning pattern.
+
+Game code.
+
+Registration status.
+
+Scheduled or actual start time.
+
+Entry price and prize information, where configured.
+
+Countdown or current game announcements, when applicable.
+
+The complete 75-number Bingo board.
+
+When the user clicks Show Less, collapse the information panel and hide the embedded board.
+
+Preserve the board's current number states when the panel is collapsed and expanded.
+
+Do not duplicate the board in two different locations on the same screen.
+
+Ensure that the expanded card scrolls naturally on smaller mobile devices without breaking the rest of the layout.
+
+10. Display All Selected Bingo Cards on One Screen
+
+Current layout problem
+
+Cards are displayed in tabs or one-at-a-time views, making it difficult for players to mark called numbers across multiple cards.
+
+Required change
+
+Replace the tab-based or single-card-at-a-time display with a responsive grid containing all cards currently selected for display.
+
+All selected cards should be visible in one continuous scrollable screen.
+
+Grid behavior
+
+Use compact cards with reduced padding and appropriately sized number cells.
+
+On small mobile screens, use as many columns as practical while keeping numbers legible and touch targets usable.
+
+Allow the user to select the preferred grid-column count in Settings.
+
+Support a responsive fallback when the requested number of columns cannot fit.
+
+Avoid unnecessary horizontal scrolling of the entire page.
+
+Keep each card's identity clearly visible.
+
+Display registration, blocked, and winning statuses without consuming excessive space.
+
+Do not enforce a fixed card size that makes numbers unreadable.
+
+The objective is to make it easier for a player to inspect and mark multiple cards during a live game.
+
+Number-marking interaction
+
+Each card must maintain its own independent marking state.
+
+When a player taps a number on a card:
+
+Update that card's marked state.
+
+Provide immediate visual feedback.
+
+Preserve the state when the screen re-renders.
+
+Do not modify other cards unless auto-complete is enabled.
+
+Validate the marking action against the official called-number history.
+
+Keep the FREE center position visually distinct and automatically marked.
+
+Avoid placing buttons or status labels over the card's number grid.
+
+11. Replace the "Jump to 75 Ball Board" Button with Settings
+
+Current behavior
+
+The header contains a "Jump to 75 Ball Board" button.
+
+Required change
+
+Replace that button with a Settings button using a recognizable settings or gear icon.
+
+When clicked, open a compact settings popover, dropdown, or bottom sheet suitable for mobile devices.
+
+Include the following settings.
+
+A. Reset/Clear Marked Numbers
+
+Provide an option to reset the player's marked numbers on the currently selected cards.
+
+Before clearing markings, display a confirmation dialog.
+
+Explain clearly that this action removes the player's manual markings and does not change the official called-number history.
+
+Do not delete cards, cancel registrations, change the game state, or modify other players' cards.
+
+The operation must affect only cards owned by the authenticated player.
+
+If auto-complete is enabled, clarify how resetting markings interacts with automatic marking. Do not silently reset and then immediately reapply markings without explaining the behavior.
+
+Ensure that this setting cannot be used to bypass claim verification or modify the official game record.
+
+B. Sort Cards By
+
+Provide a selection control with options such as:
+
+Card ID.
+
+Recently created.
+
+Registration status.
+
+Number of marked cells.
+
+Winning progress, where applicable.
+
+Sorting must change the card display order only. It must not modify card ownership, registration, marking, or winning status.
+
+Persist the preferred sorting choice for the current user if appropriate.
+
+C. Grid Columns
+
+Allow users to select the preferred number of card columns.
+
+Provide appropriate options for the current screen width, for example:
+
+1 column.
+
+2 columns.
+
+3 columns.
+
+4 columns, where screen width permits.
+
+Adapt the available options to the actual viewport width.
+
+Persist the user's preference.
+
+Do not force an excessively narrow grid on small phones.
+
+D. Auto Complete
+
+Provide an explicit toggle for automatically marking called numbers on the user's eligible cards.
+
+When enabled:
+
+Automatically mark a number only after it is officially called.
+
+Apply the behavior consistently to all eligible cards owned by the current user.
+
+Keep the marked state synchronized with the backend.
+
+Clearly indicate that auto-complete is enabled.
+
+When disabled:
+
+Require manual marking.
+
+Preserve the independent marked state of each card.
+
+Do not count a called but unmarked number toward a winning pattern.
+
+Do not allow a player to change the authoritative winning rule or the official number sequence through this setting.
+
+Settings usability
+
+Use clear labels and short descriptions.
+
+Make toggles and controls touch-friendly.
+
+Close the popover or sheet when appropriate.
+
+Preserve changes when the user navigates away.
+
+Handle errors without silently losing user preferences.
+
+PART 7: DATA INTEGRITY, REALTIME SYNCHRONIZATION, AND SECURITY
+
+12. Preserve a Single Authoritative Game State
+
+All game participants must share the same:
+
+Game status.
+
+Winning rule.
+
+Countdown deadlines.
+
+Official called-number sequence.
+
+Card registration records.
+
+Claim-window deadline.
+
+Blocked-card records.
+
+Final winner records.
+
+Use the existing realtime architecture or implement a suitable one.
+
+All important operations must be validated and persisted by the backend.
+
+Prevent race conditions involving:
+
+Simultaneous card registrations.
+
+Simultaneous Start Game requests.
+
+Duplicate number calls.
+
+Simultaneous Bingo claims.
+
+Claims arriving near the claim-window deadline.
+
+Simultaneous game-finalization operations.
+
+Use transactions, unique constraints, server-controlled scheduling, and idempotent operations where appropriate.
+
+13. Data Model and Migration
+
+Inspect the existing schema before changing it.
+
+Extend the existing tables or collections as necessary to support:
+
+User-specific card ownership.
+
+Card creation timestamps and lifecycle states.
+
+Card registration status.
+
+Per-card marked-number state.
+
+Per-user display preferences.
+
+Game lifecycle and winning rule.
+
+Pre-game countdown deadline.
+
+Automatic number-calling schedule.
+
+Claim-window deadline.
+
+Claim submission and verification timestamps.
+
+Blocked-card records.
+
+Final winner records.
+
+Use proper foreign keys, indexes, authorization policies, and uniqueness constraints where supported.
+
+Provide a safe migration strategy that preserves existing user accounts, cards, registrations, and game history.
+
+Do not delete existing records just to fix account isolation.
+
+Do not silently convert previously generated cards into registered cards during migration.
+
+If existing records have ambiguous ownership or registration status, handle them conservatively and document any required administrative reconciliation.
+
+14. Testing and Validation
+
+After implementing the changes, test the complete application.
+
+Account and card tests
+
+Log in with User A and generate cards.
+
+Log out and log in with User B.
+
+Confirm that User A's cards are not displayed.
+
+Confirm that User A's cards remain saved.
+
+Open the game on a new day and verify that previous cards are not automatically displayed.
+
+Retrieve a previous card from saved history.
+
+Confirm that it remains unregistered unless the database says it was previously registered.
+
+Generate multiple cards and verify that none is registered automatically.
+
+Role separation tests
+
+Confirm that a player cannot access the host/admin panel.
+
+Confirm that a player cannot start a game through an API request.
+
+Confirm that authorized hosts can access the controls they are permitted to use.
+
+Confirm that role changes cannot be made from client-side state alone.
+
+Countdown tests
+
+Verify the 15-second pre-game countdown.
+
+Verify that number calling starts only after the additional five-second delay.
+
+Refresh the app during the countdown and verify that the displayed deadline remains correct.
+
+Confirm that duplicate requests do not create multiple countdowns.
+
+Winner tests
+
+Submit a valid claim and verify that the 15-second claim window starts.
+
+Submit additional valid claims before the deadline.
+
+Verify that one player can win with multiple registered cards.
+
+Verify that false claims do not appear in the final winner list.
+
+Verify that the game closes after the claim deadline.
+
+Confirm that winner card IDs are clickable and display the full winning cards.
+
+Marking tests
+
+Call a number without marking it.
+
+Submit a claim that depends on that unmarked number.
+
+Confirm that the claim is rejected when auto-complete is disabled.
+
+Enable auto-complete and verify that eligible called numbers are marked correctly.
+
+Confirm that a number cannot be marked before it is called.
+
+Confirm that manual markings remain independent across cards.
+
+UI tests
+
+Expand and collapse the championship card.
+
+Verify that the 75-number board is inside the expanded card.
+
+Display multiple cards in a grid on a mobile screen.
+
+Change the grid-column preference.
+
+Test card sorting.
+
+Reset marked numbers with confirmation.
+
+Toggle auto-complete.
+
+Verify that the Settings button replaces the old jump-to-board button.
+
+Fix any discovered errors before declaring the work complete.
+
+PART 8: IMPLEMENTATION INSTRUCTIONS
+
+Follow this sequence:
+
+Inspect the existing source code and database.
+
+Identify the root causes of cross-account card leakage and automatic registration.
+
+Implement proper user ownership and card persistence.
+
+Remove automatic card registration.
+
+Separate player and host/admin authorization and navigation.
+
+Implement the server-controlled pre-game countdown.
+
+Implement the server-controlled 15-second claim window.
+
+Correct manual marking and winning verification.
+
+Implement transparent winner-card viewing.
+
+Move the 75-number board into the expanded championship card.
+
+Display all selected cards in a responsive grid.
+
+Replace the jump-to-board control with the Settings interface.
+
+Run database migrations and automated tests.
+
+Verify the full game lifecycle using multiple test accounts.
+
+Document the files changed, schema changes, configuration requirements, and test results.
+
+Final Acceptance Criteria
+
+The implementation is complete when:
+
+Cards are isolated by user account.
+
+Saved cards persist until deleted.
+
+Daily initialization does not automatically display old cards.
+
+Cards are never automatically registered.
+
+Player and host/admin access are properly separated.
+
+The host countdown lasts 15 seconds.
+
+Number calling begins after the additional five-second delay.
+
+The first valid Bingo claim starts a 15-second claim window.
+
+All eligible valid claims received within the window are processed.
+
+The final winner list supports multiple winning cards.
+
+Winner card IDs open the actual registered winning cards.
+
+A called but unmarked number cannot satisfy a winning pattern when auto-complete is disabled.
+
+False claims follow the card-blocking policy.
+
+The 75-number board is inside the expanded championship card.
+
+All selected cards can be displayed in a compact responsive grid.
+
+The Settings menu supports clearing markings, sorting cards, choosing grid columns, and enabling or disabling auto-complete.
+
+The application remains secure, consistent, and functional across multiple users and devices.
+
+Begin by diagnosing the existing implementation, then make these changes incrementally. Fix the root causes rather than adding UI workarounds. Preserve the current design and existing functionality, and do not claim success until the actual backend behavior has been tested.

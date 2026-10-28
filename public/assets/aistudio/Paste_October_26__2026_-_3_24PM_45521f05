@@ -1,0 +1,672 @@
+# GOOGLE AI STUDIO MASTER PROMPT: Implement Real Multiplayer Bingo Gameplay
+
+## 1. Project Objective
+
+Act as a senior full-stack developer specializing in real-time multiplayer games, database transactions, secure APIs, and mobile-first application design.
+
+Continue working on my existing Bingo mobile application. Upgrade it from a card-generation interface into a functional, real-world, multiplayer 75-ball Bingo game.
+
+The application already has or is intended to have:
+- User registration and login.
+- A main Bingo game screen.
+- Random Bingo card generation, up to 10 cards per request.
+- A 75-number Bingo board.
+- A horizontal called-number history.
+- An expandable game-information card.
+- Blocked cards and winner displays.
+- A host or administrator panel.
+
+Inspect the existing codebase first. Preserve the current design, working components, routes, and technology stack wherever possible. Implement the missing functionality and connect all components to a real backend and database.
+
+**Do not create a UI-only prototype. Implement the actual game logic, server-side validation, persistence, and real-time synchronization.**
+
+## 2. Core Game Architecture
+
+For the initial release, support only **one active game at a time across the entire application**.
+
+Multiple users can participate in that game simultaneously, but all players must share:
+- One game ID.
+- One configured winning rule.
+- One official number sequence.
+- One game status.
+- One registration process.
+- One authoritative list of blocked cards.
+- One authoritative list of verified winners.
+
+The initial game lifecycle should be:
+
+`Setup → Registration Open → Ready to Start → In Progress → Winner Confirmed / Game Completed`
+
+If the host cancels the game, use a separate `Cancelled` terminal state.
+
+Implement server-side rules that prevent two games from being active simultaneously. Use a database constraint, transaction, lock, or equivalent mechanism suitable for the selected database.
+
+Do not create a separate game session for each player.
+
+If the existing architecture uses a game code, retain it and make it identify the shared game.
+
+## 3. Feature One: Register Each Generated Bingo Card
+
+### Player workflow
+
+After logging in, the player can generate between 1 and 10 random Bingo cards using the existing floating plus button.
+
+Every generated card must have:
+- A unique card ID.
+- A unique card number or display identifier.
+- A valid 5 × 5 Bingo number matrix.
+- A center FREE space.
+- A registration status.
+- An owner ID once registered.
+- The shared game ID.
+- A timestamp.
+
+Display a **Register Card** button on every unregistered card.
+
+Example card layout:
+
+- Card identifier at the top.
+- B-I-N-G-O column headings.
+- The 25-cell card grid.
+- Registration status.
+- Register Card button.
+
+### Registration behavior
+
+When a player clicks Register Card:
+
+1. Send the card ID and current game ID to the backend.
+2. Authenticate the user using the existing session.
+3. Verify that the card belongs to the authenticated user.
+4. Verify that registration is currently open.
+5. Verify that the card has not already been registered.
+6. Atomically check whether another user has registered the same card for the same game.
+7. If the card is available, register it to the current user.
+8. Save the registration in the database.
+9. Return the confirmed registration status.
+10. Update the UI immediately.
+
+### If the card is already registered
+
+If another user has already registered that card, display this message:
+
+**"This card is already registered by another player. Please choose another card."**
+
+The card must remain assigned to the original player.
+
+Do not transfer ownership or overwrite the original registration.
+
+Display the card as unavailable, with a clear "Already Registered" status, if that information is visible to other users.
+
+Do not expose the other player's private account information.
+
+### Important concurrency requirement
+
+Two users may click Register Card for the same card at almost the same time.
+
+Prevent duplicate registration through database-level uniqueness constraints and an atomic transaction. A frontend check alone is insufficient.
+
+Only one request may succeed. All other requests must receive a clear conflict response.
+
+Enforce a unique registration for the combination of game ID and card ID. Also prevent a single card from being registered to multiple owners.
+
+Use the database as the source of truth rather than trusting local frontend state.
+
+### Player registration limits
+
+For the initial release:
+- Each player can generate up to 10 cards per generation request.
+- Each registered card belongs to exactly one player.
+- Allow multiple registered cards per player if permitted by the game's configuration.
+- Do not permit registration after the host closes registration or starts the game.
+- Prevent blocked or invalid cards from being registered.
+
+If a player has generated unregistered cards, preserve those cards until they are registered, discarded, or expire according to the application's defined policy.
+
+## 4. Feature Two: Host and Administrator Panel
+
+Create a secure host/admin panel using the existing application's framework and styling.
+
+Only authenticated users with an authorized host or administrator role may access this panel.
+
+Do not grant administrator permissions simply because a user navigates to an admin URL or modifies frontend state.
+
+### A. Game setup
+
+Before the game starts, the host should be able to configure:
+
+- Game title.
+- Game code, generated securely and uniquely.
+- Registration status.
+- One winning rule.
+- Scheduled start time, if needed.
+- Automatic number-calling interval.
+- Optional entry price and prize information.
+- Other essential game settings already supported by the application.
+
+For this first release, **only one winning rule may be active in a game**.
+
+Provide a dropdown or selection panel for the winning rule.
+
+Supported initial rule options:
+1. Horizontal line.
+2. Vertical line.
+3. Diagonal line.
+4. Four corners.
+5. Full card / blackout.
+
+Use the existing rules engine if it already supports these patterns. Otherwise, implement and test each pattern.
+
+The host must select exactly one rule before starting the game.
+
+Persist the selected rule in the database and make it visible to every player in the game's information card.
+
+Once the game starts, lock the rule. It must not be changed during gameplay.
+
+### B. Game status management
+
+Provide a clear status display in the host panel.
+
+Support the following lifecycle:
+
+- **Setup:** The game is being configured.
+- **Registration Open:** Players may register cards.
+- **Ready to Start:** Configuration is complete and the host can start the game.
+- **In Progress:** Official number calling is active.
+- **Winner Confirmed:** A valid winner has been verified.
+- **Completed:** The game has ended.
+- **Cancelled:** The game has been cancelled by an authorized host or administrator.
+
+The host may open or close registration before the game starts.
+
+The server must control authoritative transitions. Do not let the host set the game directly to any arbitrary status by submitting a string from the client.
+
+Once the game is in progress:
+- Do not allow new registrations.
+- Do not allow changes to the winning rule.
+- Do not allow another game to become active.
+- Do not allow an ordinary player to alter the official game status.
+
+If the host cancels the game, stop number calling and prevent further claims. Record the cancellation and its reason.
+
+## 5. Feature Three: Start Game Button
+
+Display a prominent **Start Game** button in the host panel.
+
+Before the host can start the game, validate all prerequisites:
+
+- The game is configured.
+- Exactly one winning rule is selected.
+- The game is in the Ready to Start state.
+- Required game settings are valid.
+- The host has the necessary permission.
+- The game is the only eligible game to start.
+- Any minimum-player or minimum-registration requirement configured for the game is satisfied.
+
+If validation fails, do not start the game. Explain what needs to be corrected.
+
+### When the host clicks Start Game
+
+The following sequence must occur:
+
+1. Send the start request to the backend.
+2. Verify the host's authorization.
+3. Verify the current game status.
+4. Atomically transition the game to In Progress.
+5. Close card registration.
+6. Freeze the winning rule and relevant game settings.
+7. Record the actual start time using the server clock.
+8. Initialize the official called-number sequence.
+9. Start the server-controlled number-calling process.
+10. Broadcast the updated game state to all connected players.
+11. Update the game-information card and host panel.
+12. Disable the Start Game button to prevent accidental duplicate starts.
+
+The server must ensure that repeated clicks or simultaneous requests cannot start duplicate number-calling processes.
+
+Display a confirmation dialog before starting:
+
+"Are you ready to start this Bingo game? Card registration will close, the selected winning rule will be locked, and numbers will begin to be called automatically."
+
+Buttons: Cancel and Start Game.
+
+After successful start, display a clear "Game Started" confirmation.
+
+## 6. Feature Four: Automatic Random Number Calling
+
+When the game starts, the application must automatically call random numbers from the standard 75-ball Bingo pool.
+
+### Standard number ranges
+
+- B: 1–15.
+- I: 16–30.
+- N: 31–45.
+- G: 46–60.
+- O: 61–75.
+
+### Number-calling rules
+
+- Each game has exactly one authoritative number sequence.
+- A number may be called only once per game.
+- Numbers must be generated using a secure server-side random-number mechanism.
+- The client must never generate the official number sequence independently.
+- The server must persist each number call before broadcasting it.
+- Every connected player must receive the same number in the same sequence position.
+- The server must use its own clock for event timestamps.
+- The number-calling process must continue independently of an individual player's browser or phone connection.
+
+Implement a configurable interval, such as one number every 5–10 seconds, using a safe default of 7 seconds.
+
+The interval should be controlled by the host's configuration before the game starts.
+
+Use a reliable server-side scheduler or durable job mechanism. Do not rely on a frontend timer or a request that disappears when a player closes the app.
+
+Ensure that multiple server workers or repeated start requests cannot call two numbers simultaneously.
+
+### After each number is called
+
+1. Generate the next eligible number on the server.
+2. Persist the number, sequence position, and timestamp.
+3. Update the authoritative game state.
+4. Broadcast the new number to connected players.
+5. Update the horizontal called-number history.
+6. Highlight the number on the 75-number board.
+7. Update all registered cards' marked-number calculations.
+8. Recalculate relevant winning conditions.
+
+The latest number should be visually emphasized.
+
+The game board and registered cards must remain synchronized across all players.
+
+### Game completion
+
+If all 75 numbers have been called and no valid winner has been confirmed:
+- Stop automatic number calling.
+- Set the game to an appropriate completion or no-winner state.
+- Notify connected players.
+- Preserve the full number history.
+
+If a valid winner is confirmed earlier, stop automatic number calling immediately and complete the game according to the configured game rules.
+
+Do not call additional numbers after the game has ended.
+
+## 7. Feature Five: Bingo Claim and False-Claim Blocking
+
+Display a **Claim Bingo** button on each registered, eligible card during the game.
+
+Only the owner of a registered card may submit a claim for that card.
+
+### Claim workflow
+
+When the player clicks Claim Bingo:
+
+1. Send the registered card ID and game ID to the backend.
+2. Authenticate the player.
+3. Confirm that the game is In Progress.
+4. Confirm that the card is registered to the player for this game.
+5. Confirm that the card is not blocked.
+6. Confirm that the card has not already been invalidated.
+7. Retrieve the official called-number history from the database.
+8. Evaluate the selected winning rule against the card.
+9. Record the claim result.
+10. Return the result and update the UI.
+
+The server must evaluate the claim using the official game data. Never trust the client's marked numbers or claim that a player has won.
+
+### Valid claim
+
+If the card satisfies the active winning rule:
+
+- Mark the claim as confirmed.
+- Record the winner and card ID.
+- Record the winning pattern.
+- Save the verification timestamp.
+- Update the Winners card for all players.
+- Notify the host and connected players.
+- Stop number calling.
+- Transition the game to Winner Confirmed and then Completed, according to the implementation's transaction and event sequence.
+
+Use an atomic backend operation to prevent conflicting winners from being recorded when multiple claims arrive at the same time.
+
+For this initial version, the first valid claim successfully confirmed by the backend wins, unless the configured game rules explicitly provide otherwise.
+
+### False Bingo claim
+
+If the card does not satisfy the active winning rule, treat the claim as a false claim.
+
+Perform the following actions:
+
+1. Record the failed claim in the database.
+2. Record the card ID, player ID, game ID, time, and verification result.
+3. Block the claiming card on the server.
+4. Change its status to Blocked.
+5. Prevent further Bingo claims using that card.
+6. Prevent the blocked card from winning.
+7. Update the Blocked Cards section for all connected players.
+8. Notify the player that the claim was invalid and the card has been blocked.
+9. Notify the host or administrator.
+10. Preserve an audit record of the action.
+
+Display a clear message such as:
+
+**"Invalid Bingo claim. Your card has been blocked because it did not satisfy the active winning rule."**
+
+The blocked card must remain blocked even if the user refreshes the app, logs out, or reconnects.
+
+Enforce this on the backend. Hiding the button or changing the card's appearance is not sufficient.
+
+For this initial release, the consequence of a false claim is to block the claiming card, not automatically the player's entire account or their other cards.
+
+Do not automatically block an entire user because one of their cards made a false claim.
+
+### Important verification requirement
+
+Use the game's configured rule and the standard FREE center space.
+
+Examples:
+- For a horizontal line, all required cells in at least one row must be valid.
+- For a vertical line, all required cells in at least one column must be valid.
+- For a diagonal line, the required diagonal cells must be valid.
+- For four corners, all four corner cells must be valid.
+- For blackout, all numbered cells must be covered by called numbers; the FREE space counts as covered.
+
+The claim must be evaluated against the actual called numbers, not the time at which the player clicked or the player's local interface.
+
+A false claim must never cause the application to mark a winner.
+
+## 8. Feature Six: Live Player Interface
+
+Keep the existing main game screen and enhance it with the real game state.
+
+### Header
+Preserve:
+- Bingo game name.
+- Undo and redo buttons, with appropriate permission and history rules.
+- Settings.
+- Grid/dashboard shortcut.
+- Hamburger menu.
+
+### Expandable game-information card
+Display:
+- Game code.
+- Selected winning rule.
+- Registration status.
+- Game status.
+- Actual start time.
+- Entry price, if configured.
+- Prize information, if configured.
+
+Use the existing Show More and Show Less behavior.
+
+### Called-number history
+Show all official calls in chronological order, with the most recent number emphasized.
+
+### 75-number board
+Highlight official called numbers using the established B-I-N-G-O color scheme.
+
+### My Bingo Cards
+For each card, show:
+- Card identifier.
+- The card's 5 × 5 grid.
+- Register Card button while registration is open.
+- Registration status.
+- Claim Bingo button during the game, if eligible.
+- Blocked status when applicable.
+- Winning status when confirmed.
+
+The app should clearly distinguish between generated, registered, blocked, and winning cards.
+
+### Blocked Cards
+Show the identifiers of all blocked cards in the current game.
+
+### Winners
+Show the confirmed winner and relevant result information only after server-side verification.
+
+All these sections must use the same authoritative backend state.
+
+## 9. Backend and Database Requirements
+
+Inspect the current backend and database before introducing new dependencies.
+
+Reuse the existing stack where practical.
+
+Create or update the data model for:
+
+### Users
+- User ID.
+- Display name.
+- Authentication reference.
+- Role.
+- Account status.
+
+### Games
+- Game ID.
+- Game code.
+- Title.
+- Winning rule.
+- Status.
+- Registration status.
+- Number-calling interval.
+- Start time.
+- Completion time.
+- Host ID.
+- Prize configuration, if applicable.
+
+### Bingo Cards
+- Card ID.
+- Owner ID.
+- Game ID.
+- Card matrix.
+- Registration status.
+- Blocked status.
+- Creation timestamp.
+
+### Card Registrations
+- Registration ID.
+- Game ID.
+- Card ID.
+- Owner ID.
+- Registration timestamp.
+
+Apply database constraints that prevent the same card from being registered more than once for a game and prevent registration ownership from being overwritten.
+
+### Called Numbers
+- Call ID.
+- Game ID.
+- Number.
+- Sequence position.
+- Server timestamp.
+
+Apply a unique constraint for the number within a game and a unique sequence position within a game.
+
+### Bingo Claims
+- Claim ID.
+- Game ID.
+- Card ID.
+- Player ID.
+- Winning rule evaluated.
+- Claim result.
+- Verification timestamp.
+- Failure reason, when applicable.
+
+### Blocked Cards
+- Block record ID.
+- Game ID.
+- Card ID.
+- Player ID.
+- Reason.
+- Timestamp.
+
+### Winners
+- Winner record ID.
+- Game ID.
+- Claim ID.
+- Card ID.
+- Player ID.
+- Winning pattern.
+- Confirmation timestamp.
+
+Add appropriate foreign keys, indexes, and transactions.
+
+Adapt these entities to the existing database rather than creating unnecessary duplicate tables.
+
+## 10. API and Real-Time Events
+
+Implement appropriate backend endpoints or equivalent server actions for:
+
+- Fetching the current game.
+- Creating or configuring a game.
+- Opening and closing registration.
+- Generating cards.
+- Registering a card.
+- Fetching a player's registered cards.
+- Starting the game.
+- Fetching called-number history.
+- Calling the next number through an authorized server operation.
+- Submitting a Bingo claim.
+- Fetching blocked cards.
+- Fetching confirmed winners.
+- Fetching game history.
+
+Implement realtime events for:
+- Game status changes.
+- Registration closure.
+- Number calls.
+- Card registration updates.
+- Card blocking.
+- Claim verification.
+- Winner confirmation.
+- Game completion.
+
+Use WebSockets, a managed realtime database, or another appropriate mechanism compatible with the existing project.
+
+When a player reconnects, fetch the authoritative current state and any missing events. Do not assume that a client has received every event.
+
+Validate every important request on the backend.
+
+## 11. Security and Abuse Prevention
+
+Implement:
+- Authentication and authorization on protected endpoints.
+- Server-side role checks.
+- Atomic card registration.
+- Atomic game start.
+- Duplicate-call prevention.
+- Duplicate-claim prevention.
+- Server-authoritative game state.
+- Request validation and rate limits.
+- Secure random number generation.
+- Persistent card-block records.
+- Audit logging for host actions and claims.
+
+Only authorized hosts may start games or modify game settings.
+
+Only authorized backend processes may generate official number calls.
+
+Players must not be able to modify their card matrices after registration, change their owner ID, change their claim result, or remove a block by editing client requests.
+
+Use a trusted authentication system and secure database policies.
+
+Never expose server secrets in frontend code.
+
+## 12. Testing Requirements
+
+Implement and run tests for these scenarios.
+
+### Card registration
+- A player registers an available card successfully.
+- A player attempts to register their card twice.
+- Two different players attempt to register the same card simultaneously.
+- The second registration is rejected without changing the original owner.
+- Registration is rejected after the game starts.
+- A user cannot register a card owned by another user.
+
+### Game configuration and start
+- The host configures exactly one winning rule.
+- The host cannot start without a rule.
+- The host can start a valid game.
+- A player cannot start a game.
+- Repeated start requests do not create duplicate schedulers.
+- Two simultaneous game-start requests cannot start multiple games.
+
+### Automatic number calling
+- Numbers are called automatically at the configured interval.
+- No number is called twice.
+- All players receive the same sequence.
+- The sequence persists after a server restart or reconnection.
+- Number calling stops after a valid winner is confirmed.
+- Number calling stops when the game is cancelled or reaches its terminal state.
+
+### Winning claims
+- A valid claim is accepted.
+- A false claim blocks the correct card.
+- A blocked card cannot claim again.
+- A blocked card cannot become a winner.
+- A player cannot claim another player's card.
+- The FREE center space is evaluated correctly.
+- All five supported winning patterns are tested.
+- Simultaneous claims do not create inconsistent results.
+
+### User interface
+- Register Card buttons display correct states.
+- Registration conflicts show the required message.
+- The Start Game button works only for authorized hosts.
+- The game board updates after each number call.
+- Blocked cards and winners update for all connected players.
+- The app remains usable on small Android screens.
+
+Fix any failures before reporting the implementation as complete.
+
+## 13. Required Implementation Workflow
+
+### Phase 1: Inspect the current project
+Identify the frontend framework, backend, database, authentication system, existing card-generation logic, and current game-state handling.
+
+### Phase 2: Implement database and backend rules
+Build the registration transactions, role-based access, game lifecycle, authoritative number-calling mechanism, claim verification, and persistent card blocking.
+
+### Phase 3: Integrate the player interface
+Add Register Card buttons, registration statuses, claim actions, and real-time game updates to the existing UI.
+
+### Phase 4: Build the host controls
+Add rule selection, registration controls, status display, start confirmation, and automatic number-calling configuration.
+
+### Phase 5: Test the complete lifecycle
+Test from user registration and card generation through card registration, game start, number calling, false claims, valid claims, and completion.
+
+### Phase 6: Deliver working code
+Provide:
+- All updated source files.
+- Database schema and migrations.
+- Environment-variable documentation.
+- Backend setup instructions.
+- Host-account setup instructions.
+- Test results.
+- A clear list of any external integrations that still require configuration.
+
+Do not claim a feature is fully implemented if it only works with mocked data or local frontend state.
+
+## Final Acceptance Criteria
+
+The first real multiplayer release must satisfy all of these conditions:
+
+1. Users can register and log in.
+2. Users can generate up to 10 cards per request.
+3. Each card has a Register Card button.
+4. A registered card cannot be registered by another player.
+5. The second player sees the message: "This card is already registered by another player. Please choose another card."
+6. The host selects exactly one winning rule before starting the game.
+7. The host starts the shared game using the Start Game button.
+8. Registration closes when the game starts.
+9. The backend calls random numbers automatically and never repeats a number.
+10. Every connected player sees the same official calls.
+11. Each Bingo claim is evaluated against the selected winning rule.
+12. A false claim persistently blocks the claiming card.
+13. A valid claim is confirmed by the backend and recorded as a winner.
+14. Number calling stops when the game ends.
+15. Only one active game can exist at a time.
+16. The game state survives refreshes and network reconnections.
+17. Administrative operations are protected by backend authorization.
+18. The original mobile UI is preserved and improved rather than replaced with an unrelated design.
+
+**Begin now by inspecting the existing project. Implement the database and backend rules first, then connect the UI. Prioritize atomic registration, secure host permissions, reliable automatic number calling, and server-side claim verification. The goal is a genuinely playable multiplayer game, not just a visual simulation.**

@@ -1,0 +1,791 @@
+# PROJECT: Build a Production-Ready 75-Ball Bingo Mobile App
+
+## 1. Your Role
+
+Act as a senior mobile application developer, UI/UX designer, backend architect, database engineer, and QA specialist.
+
+Upgrade my existing Bingo mobile app into a modern, secure, responsive, and production-ready 75-ball bingo application.
+
+Use the three attached screenshots as the primary visual references. Analyze the existing application before making changes. Preserve working features and the current technology stack wherever possible.
+
+**Important:** Do not build only a static design or a frontend demo. Implement functional authentication, bingo-card generation, game-state management, number calling, card marking, winning detection, and the backend architecture required for a real application.
+
+If a backend service, API, or database is missing, identify the gap and implement or configure the appropriate solution.
+
+## 2. Reference Design and Visual Direction
+
+Follow the attached screenshots for the overall layout, while improving the visual quality and usability.
+
+### Existing visual elements to preserve and improve
+- Blue-to-purple gradient header.
+- Bingo game title on the left.
+- Undo and redo buttons.
+- Settings button.
+- Grid or dashboard shortcut.
+- Hamburger menu.
+- Collapsible game-information section with "Show More" and "Show Less".
+- Horizontally scrolling called-number history.
+- Standard 75-ball bingo board.
+- Cards with rounded corners, subtle shadows, and clean spacing.
+- Floating red plus button at the bottom-right.
+- Distinct colors for each bingo column.
+
+### Design improvements
+Create a polished mobile-first interface with:
+- Consistent spacing and typography.
+- Rounded cards with subtle shadows.
+- High-contrast, readable text.
+- Smooth, lightweight animations.
+- Touch-friendly buttons.
+- Responsive layouts for Android, iOS, and mobile browsers.
+- Safe-area handling and proper scrolling.
+- Accessible color contrast and labels.
+- Loading indicators, empty states, error messages, and confirmation dialogs.
+
+Use the existing application's colors as the starting point. Keep the familiar blue, purple, red, and white palette, but refine it into a consistent design system.
+
+Do not unnecessarily redesign the entire application or remove existing functionality.
+
+## 3. Application Flow
+
+Implement the following user journey:
+
+1. User opens the application.
+2. Display a branded splash screen or loading screen.
+3. Check whether the user has an authenticated session.
+4. If the user is not authenticated, show the login page.
+5. Allow new users to register through the sign-up page.
+6. After successful authentication, navigate to the main Bingo game screen.
+7. Load the user's profile, available game information, and active session.
+8. Allow the user to generate between 1 and 10 random bingo cards.
+9. Display the current game's information, called numbers, bingo board, blocked cards, and winners.
+10. Update game information and winning results in real time when supported by the backend.
+11. Preserve the user's session and relevant game state when they reopen the application.
+
+Create clear navigation between authentication, the game screen, settings, profile, game history, and other secondary screens.
+
+## 4. Authentication: Login and Sign-Up
+
+Build complete authentication screens.
+
+### Login screen
+Include:
+- Application logo and Bingo name.
+- Email address or username field.
+- Password field with show/hide toggle.
+- Remember-me option where appropriate.
+- Forgot-password link.
+- Primary "Log In" button.
+- Link to "Create an Account".
+- Loading and validation states.
+- Clear error messages for incorrect credentials, inactive accounts, and network failures.
+
+### Sign-up screen
+Include:
+- Full name.
+- Username, if supported.
+- Email address or phone number, according to the selected authentication system.
+- Password.
+- Confirm password.
+- Terms and conditions acceptance.
+- "Create Account" button.
+- Link to the login screen.
+
+Implement secure registration, password hashing through a trusted authentication provider or backend, session management, and appropriate validation.
+
+Support email verification and password recovery if available in the chosen backend.
+
+Never store plaintext passwords or expose secret keys in frontend code.
+
+Protect all authenticated routes and APIs. A user must not access another user's private profile or data simply by changing a URL or request parameter.
+
+## 5. Main Game Screen and Header
+
+Create a compact, attractive header matching the screenshots.
+
+### Header layout
+- Left: Application name, such as "10:20 BINGO", with the name configurable through application settings.
+- Center/right: Undo, redo, and settings icons.
+- Additional controls: Grid/dashboard shortcut and hamburger menu.
+- Use clear tooltips or accessible labels where appropriate.
+
+### Undo and redo
+Implement meaningful undo and redo functionality for reversible user actions, such as:
+- Adding or removing a bingo card from the user's local selection.
+- Manual card-marking actions, if manual marking is enabled.
+- Other reversible local interface changes.
+
+Do not allow undo or redo to reverse an authoritative number call, another player's action, or a completed game result unless the game server explicitly supports that operation and the user has permission.
+
+Disable the buttons when no undo or redo action is available.
+
+### Hamburger menu
+Include:
+- Home / Game.
+- My Bingo Cards.
+- Game Rules.
+- Game History.
+- Profile.
+- Settings.
+- Help and Support.
+- Notifications.
+- Logout.
+
+Use a drawer or side menu with a clear active-item state.
+
+## 6. Collapsible Game Information Card
+
+At the top-right of the content area, display a "Show More" control.
+
+When clicked, expand a game-information card. Change the control to "Show Less".
+
+When collapsed, keep the interface compact and display the horizontal called-number history prominently.
+
+When expanded, show the following information:
+
+1. Game title and game type.
+2. Game rules summary.
+3. Unique game code.
+4. Game starting date and time.
+5. Current game status.
+6. Entry price or starting price.
+7. Total prize pool.
+8. Individual prize amounts and prize categories.
+9. Number of registered players, if permitted.
+10. Game host or organizer, if applicable.
+11. Relevant game announcements.
+
+Use a layout similar to the screenshots, with small icons, clearly separated information, and readable text.
+
+### Game statuses
+Support appropriate statuses such as:
+- Scheduled.
+- Registration Open.
+- Starting Soon.
+- In Progress.
+- Checking Winners.
+- Completed.
+- Cancelled.
+
+Display status labels using consistent colors.
+
+Only show actual game information returned by the backend. Never display fake game codes, random prize amounts, fabricated player counts, or placeholder values as if they were real.
+
+If a field is unavailable, show an appropriate fallback such as "Not available".
+
+### Expansion behavior
+- "Show More" expands the information panel.
+- "Show Less" collapses it.
+- Preserve the current game state during expansion and collapse.
+- Animate the transition smoothly without causing the rest of the interface to jump unnecessarily.
+- Support smaller mobile screens and vertical scrolling.
+
+## 7. Horizontal Called-Numbers History
+
+Directly below the collapsible game-information area, display a horizontally scrolling card containing called-number history.
+
+The design should resemble the colorful number balls in the screenshots.
+
+Each number ball should display:
+- The corresponding letter: B, I, N, G, or O.
+- The number.
+- The appropriate column color.
+
+Use these colors consistently:
+- B: Blue.
+- I: Red.
+- N: Green.
+- G: Purple.
+- O: Orange.
+
+Display the most recently called number prominently, with a larger ball or clear visual emphasis.
+
+Requirements:
+- Automatically update when a new number is called.
+- Preserve the correct chronological order.
+- Allow horizontal scrolling to view earlier numbers.
+- Prevent duplicate number calls in the same game.
+- Clearly distinguish the latest number from previous calls.
+- Display an appropriate empty state before the first number is called.
+- Allow the user to tap a number to view its details or highlight the corresponding number on the bingo board.
+
+Use a single authoritative number history shared by the game server and all connected clients.
+
+## 8. Generate Random Bingo Cards Using the Plus Button
+
+This is one of the most important features.
+
+Place a circular floating red "+" button at the bottom-right of the main screen, similar to the screenshots.
+
+When the user clicks the button, open a polished bottom sheet or dialog.
+
+### Card selection dialog
+Display the question:
+
+"How many Bingo cards would you like?"
+
+Allow the user to select an integer between 1 and 10.
+
+Provide convenient selection buttons for:
+1, 2, 3, 4, 5, 6, 7, 8, 9, and 10.
+
+Include:
+- A selected-card count.
+- A minus/plus stepper or selectable grid.
+- A "Cancel" button.
+- A primary "Generate Cards" button.
+- Clear information about any applicable card limits or fees.
+
+Default to one card.
+
+### Generation logic
+When the user confirms the selection:
+
+1. Validate that the requested quantity is between 1 and 10.
+2. Check the game status and any applicable player limits.
+3. Generate the requested number of valid random 75-ball Bingo cards.
+4. Assign each card a unique identifier.
+5. Save the cards to the authenticated user's account and the appropriate game session.
+6. Render all generated cards on the screen.
+7. Display a success message confirming the number of cards generated.
+
+If the request fails, preserve the user's selection and show a useful error message.
+
+Do not generate additional cards when the user double-clicks the button or retries a request that has already succeeded. Use appropriate request handling and idempotency.
+
+### Standard 75-ball Bingo card structure
+
+Every card must have five columns labeled B, I, N, G, and O, with five rows.
+
+Use these standard ranges:
+
+- B: 1–15.
+- I: 16–30.
+- N: 31–45.
+- G: 46–60.
+- O: 61–75.
+
+Each column contains five positions. The center position of the N column is a free space.
+
+Therefore:
+- Each card contains 24 numbered positions and one free center position.
+- The center position displays "FREE" or "F".
+- The free position is automatically considered marked for winning-pattern evaluation.
+- Numbers must be unique within each card.
+- Each number must belong to its correct column.
+- Generated cards must follow the official card-format rules.
+
+If the application supports multiple cards in the same game, prevent accidental duplicate card assignments within that game wherever the selected card format permits.
+
+### Generated card display
+Each card should include:
+- Card number or identifier.
+- Card grid.
+- Current marking status.
+- Relevant game identifier.
+- Optional remove or hide control, according to the game's rules.
+
+Display cards in a responsive layout:
+- One card per row on narrow mobile screens.
+- Multiple columns on wider screens when sufficient space is available.
+
+Provide a "My Cards" section and allow users to navigate between cards easily.
+
+If the game is already in progress, immediately apply the existing called-number history to newly generated cards so their marking states are correct.
+
+Do not silently change an existing card's numbers after it has been registered.
+
+## 9. Main 75-Number Bingo Board
+
+Below the called-number history, render the complete 75-number board.
+
+The board must contain all numbers from 1 through 75, organized into five rows of 15 numbers or another clear layout matching the screenshot.
+
+Display the B, I, N, G, and O column labels on the left side.
+
+Group the numbers into their corresponding ranges:
+
+- B: 1–15.
+- I: 16–30.
+- N: 31–45.
+- G: 46–60.
+- O: 61–75.
+
+### Number states
+Every number must support the following visual states:
+
+1. Not yet called: neutral background.
+2. Called: highlighted using its corresponding letter color.
+3. Most recently called: emphasized with a stronger border or glow.
+4. Disabled or unavailable, where applicable.
+
+Use the same column-color mapping throughout the application.
+
+### Number interaction
+If the user taps a number:
+- Display its number and letter.
+- Show whether it has been called.
+- Highlight it in the called-number history if applicable.
+- Do not change the authoritative game history.
+
+If a manual number-calling feature is available, restrict it to authorized game hosts or administrators.
+
+Regular players must not be able to manipulate the official game by tapping numbers.
+
+The board must update immediately after receiving a valid number-call event from the backend.
+
+## 10. Blocked Bingo Cards
+
+Below the bingo board, create a card titled "Blocked Cards".
+
+Display blocked-card identifiers as compact chips or badges, matching the reference design.
+
+Each blocked card record should contain:
+- Card identifier.
+- Relevant game identifier.
+- Reason for blocking, when available.
+- Current status.
+- Timestamp of the blocking action.
+
+### Blocking rules
+- Only authorized administrators or game hosts may block cards.
+- Enforce blocking permissions on the backend.
+- Prevent blocked cards from being used to claim a prize.
+- Update the blocked-card list in real time.
+- Keep an auditable record of blocking and unblocking actions.
+- Do not allow ordinary players to bypass the block by changing client-side state.
+
+When no cards are blocked, display "No blocked cards".
+
+## 11. Winner Information Card
+
+Below the blocked-cards section, display a dedicated Winners card.
+
+When a player submits a valid Bingo claim, the backend must verify the claim against the official game history and the applicable winning rules.
+
+If a winner is confirmed, display:
+- Winner's display name or approved public identifier.
+- Winning card identifier.
+- Winning pattern.
+- Prize amount or prize category.
+- Claim verification status.
+- Confirmation time.
+
+Support multiple winners when the rules allow them.
+
+Distinguish between:
+- Claim submitted.
+- Claim under verification.
+- Claim confirmed.
+- Claim rejected.
+
+Do not declare a winner based only on a client-side animation or a player's local card markings.
+
+If there are no confirmed winners, display "No winners yet".
+
+When the game ends, show the final results and the game's completion status.
+
+## 12. Bingo Game Rules and Winning Patterns
+
+Provide a dedicated Game Rules screen and a concise rules summary in the expandable game-information card.
+
+For a standard 75-ball game, support configurable winning patterns such as:
+- Horizontal line.
+- Vertical line.
+- Diagonal line.
+- Four corners.
+- Full card / blackout.
+- Other patterns configured by the game organizer.
+
+The center FREE space counts as marked.
+
+Winning patterns must be defined by the game configuration. Do not assume that every pattern is active in every game.
+
+### Bingo claim workflow
+1. The user selects one of their cards.
+2. The user taps "Claim Bingo".
+3. The client submits the card identifier and game identifier.
+4. The server verifies that the card belongs to the player and the current game.
+5. The server checks that the card is not blocked.
+6. The server compares the card with the official called-number history.
+7. The server evaluates the configured winning pattern.
+8. The server records the result.
+9. The client displays the verification result.
+
+Protect against duplicate claims and simultaneous claims from multiple users.
+
+For a real multiplayer game, the server must be authoritative about the number sequence, game state, card validity, and winning results.
+
+## 13. Real-Time Game Synchronization
+
+The app must be designed for multiple players participating in the same game.
+
+Use a suitable real-time communication mechanism, such as WebSockets or a managed realtime database, depending on the existing technology stack.
+
+Synchronize:
+- Current game status.
+- Newly called numbers.
+- Called-number history.
+- Player card registration.
+- Blocked cards.
+- Bingo claims.
+- Confirmed winners.
+- Game announcements.
+
+### Important rules
+- Generate and record official called numbers on the server.
+- Prevent duplicate numbers in the same game.
+- Persist each official number call before broadcasting it.
+- Maintain a consistent sequence across all connected clients.
+- Restore the correct game state after a network disconnection.
+- Handle reconnects without losing called numbers.
+- Use server timestamps for authoritative events.
+- Handle simultaneous claims and other race conditions safely.
+
+If no live game backend currently exists, implement the required backend or clearly configure the integration points. Do not simulate multiplayer synchronization using local state alone.
+
+## 14. Game Creation and Administration
+
+Design the system to support an authorized administrator or game host.
+
+Administrative capabilities should include:
+- Create a game.
+- Assign a unique game code.
+- Set the scheduled start time.
+- Configure game rules.
+- Set the entry price and prize structure.
+- Open and close registration.
+- Start and pause a game, where permitted.
+- Call the next number.
+- Review player registrations.
+- Block and unblock cards.
+- Review Bingo claims.
+- Confirm valid winners.
+- Complete or cancel a game.
+- Review the game history.
+
+Enforce role-based permissions on the backend.
+
+A normal player must not be able to access administrator-only endpoints or change official game settings.
+
+Keep a record of sensitive administrative actions.
+
+## 15. Settings Screen
+
+Create a settings screen accessible from the header.
+
+Include:
+- Sound on/off.
+- Number-call sound.
+- Vibration on/off where supported.
+- Theme selection, including light and dark modes.
+- Language selection, if localization is supported.
+- Text size or accessibility options.
+- Notification preferences.
+- Account and security settings.
+- Logout.
+
+Save user preferences appropriately and restore them when the app restarts.
+
+Do not play sounds automatically when the user has disabled sound.
+
+## 16. User Profile and Game History
+
+Create a profile page containing:
+- Display name.
+- Account details.
+- Profile photo, if supported.
+- Account status.
+- Basic account preferences.
+
+Create a game-history page containing:
+- Game code.
+- Date and time.
+- Cards used.
+- Game result.
+- Winning status.
+- Prize details, when applicable.
+- Relevant claim history.
+
+Only expose information that the current user is authorized to see.
+
+## 17. Backend, Database, and API Architecture
+
+Inspect the existing application before choosing the implementation.
+
+Reuse the current framework and database where appropriate. If a backend is missing, select a maintainable production-oriented architecture compatible with the current project.
+
+Possible technologies include:
+- Frontend: the existing React, React Native, Flutter, or other framework already in the project.
+- Authentication: a secure authentication provider or a properly implemented backend authentication system.
+- Backend: the existing server or a suitable API service.
+- Database: PostgreSQL, Firebase, Supabase, or the existing database when appropriate.
+- Realtime: WebSockets or a managed realtime service.
+- File storage: a secure storage service if profile images or other uploads are supported.
+
+Do not introduce unnecessary technologies or rewrite a working application without a clear reason.
+
+### Core data entities
+Design an appropriate database schema for:
+
+**Users**
+- User ID.
+- Display name.
+- Username or email.
+- Authentication provider reference.
+- Account status.
+- Role.
+- Creation timestamp.
+
+**Games**
+- Game ID.
+- Unique game code.
+- Title.
+- Rules configuration.
+- Status.
+- Scheduled start time.
+- Actual start time.
+- Entry price.
+- Prize configuration.
+- Host ID.
+- Creation timestamp.
+
+**Bingo Cards**
+- Card ID.
+- Game ID.
+- Owner ID.
+- Card number matrix.
+- Registration status.
+- Block status.
+- Creation timestamp.
+
+**Called Numbers**
+- Call ID.
+- Game ID.
+- Number.
+- Sequence position.
+- Server timestamp.
+- Authorized caller ID.
+
+**Bingo Claims**
+- Claim ID.
+- Game ID.
+- Card ID.
+- Player ID.
+- Winning pattern.
+- Verification status.
+- Submission timestamp.
+- Verification timestamp.
+
+**Winners**
+- Winner ID.
+- Game ID.
+- Claim ID.
+- Card ID.
+- Player ID.
+- Prize category.
+- Prize amount, if applicable.
+- Confirmation timestamp.
+
+**Game History / Audit Events**
+- Event ID.
+- Game ID.
+- Actor ID.
+- Event type.
+- Event details.
+- Server timestamp.
+
+Add appropriate relationships, indexes, constraints, and database security policies.
+
+Do not expose private credentials, password hashes, or sensitive administrative information to clients.
+
+## 18. Money, Entry Fees, and Prizes
+
+The interface may display configured entry prices and prizes, but the application must not pretend that displaying an amount means a payment has occurred.
+
+If paid entry or real-money prizes are part of the intended product:
+- Use a properly integrated payment provider where legally available.
+- Validate all payment events on the backend.
+- Record transactions securely.
+- Prevent duplicate charges and duplicate payouts.
+- Reconcile payments against game registrations.
+- Implement refunds and cancellation handling where applicable.
+- Protect against fraudulent claims and unauthorized balance changes.
+- Do not store card details directly unless the appropriate compliant payment infrastructure is in place.
+
+Before enabling real-money gaming, confirm applicable gambling, lottery, payment, age-verification, and data-protection requirements in the target jurisdictions.
+
+If these integrations are not configured, implement a clearly labeled demo or free-play mode rather than presenting simulated transactions as real.
+
+## 19. Mobile Performance and Responsiveness
+
+Optimize the interface for real mobile use.
+
+Requirements:
+- Responsive design for small and large phones.
+- Correct handling of Android navigation bars and iOS safe areas.
+- Smooth vertical scrolling.
+- Horizontal scrolling for called numbers.
+- Efficient rendering of multiple Bingo cards.
+- No overlapping floating buttons or navigation controls.
+- No horizontal overflow in the main content.
+- Stable layout during expansion and collapse.
+- Appropriate loading skeletons.
+- Graceful offline and reconnection states.
+- Reduced-motion support.
+- Accessible labels for icon-only buttons.
+
+The floating plus button must remain easy to reach without covering important content.
+
+Do not use arbitrary fixed heights that cause the app to become unusable on smaller screens.
+
+## 20. Error Handling and Security
+
+Implement clear handling for:
+- Invalid login credentials.
+- Duplicate registrations.
+- Network failures.
+- Expired sessions.
+- Unauthorized access.
+- Missing games.
+- Closed registration.
+- Invalid card-generation requests.
+- Card-generation conflicts.
+- Duplicate number-call requests.
+- Invalid Bingo claims.
+- Blocked cards.
+- Completed or cancelled games.
+- Realtime connection failures.
+
+Use server-side validation for every important action.
+
+Never trust client-submitted prices, game statuses, card ownership, winning results, or administrative permissions.
+
+Add appropriate rate limits, request validation, authorization checks, and secure error responses.
+
+Do not expose internal stack traces, private environment variables, or secrets in production responses.
+
+## 21. Testing and Quality Assurance
+
+Test the following before considering the application complete.
+
+### Authentication tests
+- Register a new user.
+- Reject invalid registration data.
+- Log in successfully.
+- Reject incorrect credentials.
+- Restore a valid session.
+- Log out.
+- Prevent unauthorized access.
+
+### Card-generation tests
+- Generate one card.
+- Generate ten cards.
+- Reject zero cards and more than ten cards.
+- Validate all column ranges.
+- Validate the center FREE position.
+- Validate unique numbers within each card.
+- Prevent duplicate card-creation requests.
+- Restore previously generated cards.
+- Apply previous calls to cards generated during an active game.
+
+### Game tests
+- Record a valid number call.
+- Reject duplicate calls.
+- Update the number history.
+- Update the 75-number board.
+- Synchronize multiple connected clients.
+- Reconnect after losing network access.
+- Block a card using an authorized account.
+- Reject claims for blocked cards.
+- Verify a valid Bingo claim.
+- Reject an invalid Bingo claim.
+- Handle simultaneous winning claims.
+- Complete the game correctly.
+
+### UI tests
+- Expand and collapse the information card.
+- Open and close the card-generation dialog.
+- Select each supported card quantity.
+- Test scrolling and touch interactions.
+- Test the layout on narrow screens.
+- Verify button disabled states.
+- Verify loading and error messages.
+- Confirm that the floating plus button does not obstruct important content.
+
+Fix any errors discovered during testing.
+
+## 22. Implementation Instructions for Google AI Studio
+
+Follow this workflow:
+
+**Phase 1 — Inspect**
+- Examine the existing source files, dependencies, routes, components, and current bingo logic.
+- Identify the existing framework and backend.
+- Identify which features already work.
+- Preserve working features unless a change is necessary.
+
+**Phase 2 — Plan**
+- Define the component architecture.
+- Define authentication and routing.
+- Define the data model.
+- Define the official bingo-number and card-generation logic.
+- Define real-time synchronization and permission rules.
+- Identify any required environment variables or external services.
+
+**Phase 3 — Implement**
+- Build authentication.
+- Build the main game interface.
+- Implement random card generation.
+- Implement the 75-number board.
+- Implement called-number history.
+- Implement the expandable game-information card.
+- Implement blocked cards and winners.
+- Implement game administration and authoritative backend logic.
+- Implement settings, profile, and game history.
+
+**Phase 4 — Integrate**
+- Connect all relevant screens to the same source of game data.
+- Ensure that generated cards, number calls, game status, and claims remain consistent.
+- Add proper loading, error, empty, and reconnection states.
+
+**Phase 5 — Verify**
+- Run the available tests.
+- Fix compilation errors.
+- Fix broken imports and routes.
+- Check the database schema and migrations.
+- Test authentication and authorization.
+- Test mobile responsiveness.
+- Verify the main game flow from registration through card generation and winner verification.
+
+**Phase 6 — Deliver**
+- Provide the completed implementation in the existing project structure.
+- List all changed and newly created files.
+- Explain the database setup and migrations.
+- Document environment variables using an example environment file without real secrets.
+- Explain how to run the frontend and backend.
+- Document how to create the initial administrator account securely.
+- Identify any external services that still require credentials or configuration.
+- Clearly distinguish fully implemented features from integrations that still require setup.
+
+## 23. Final Acceptance Criteria
+
+The application is ready for further production preparation when:
+
+1. A new user can register and log in.
+2. An authenticated user can access the main Bingo screen.
+3. The user can generate between one and ten valid random Bingo cards.
+4. Generated cards are stored and associated with the correct user and game.
+5. The expandable game-information card displays actual configured information.
+6. The horizontal called-number history updates correctly.
+7. The 75-number board reflects the authoritative game history.
+8. Blocked cards are displayed and enforced by the backend.
+9. Winning claims are verified by the backend.
+10. Confirmed winners are displayed accurately.
+11. Multiple clients can synchronize with the same game when realtime support is configured.
+12. The header controls, settings, and navigation work correctly.
+13. The application handles common errors without crashing.
+14. The layout matches the visual direction of the attached screenshots.
+15. No critical game rules or security checks depend exclusively on frontend code.
+
+**Final instruction:** Start by inspecting the existing project and the attached screenshots. Then implement the application in a structured, incremental manner. Prioritize functional correctness, secure game logic, and a polished mobile interface. Do not stop after creating a mockup, and do not replace existing working functionality with fake data or nonfunctional buttons. If any backend service is unavailable, explain the missing configuration and implement as much of the working integration as possible.
