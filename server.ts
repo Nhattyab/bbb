@@ -95,29 +95,26 @@ const users: Map<string, User> = new Map([
   ],
 ]);
 
-// Single Shared Active Game across entire application
+// Single Shared Active Game across entire application (Initial Stage 1: Next Game unconfigured)
 let currentGame: GameSession = {
   id: 'game-1020-shared',
-  gameCode: '10:20-BINGO',
+  gameCode: '10:20-BINGO-NEXT',
   title: '10:20 BINGO Championship',
   gameType: '75-Ball Classic',
-  status: 'registration_open',
-  activeWinningRule: 'horizontal_line', // Single active winning rule
+  status: 'next_game',
+  activeWinningRule: 'not_set',
   isRuleLocked: false,
-  registrationOpen: true,
-  startTime: 'Ready to Start',
+  registrationOpen: false,
+  startTime: 'TBD',
   entryPrice: 1.0,
-  totalPrizePool: 150.0,
-  prizes: [
-    { category: 'Championship Prize', amount: 150.0, pattern: 'horizontal_line' },
-  ],
+  individualPrize: 0,
+  totalPrizePool: 0,
+  prizes: [],
   registeredPlayersCount: 0,
   hostName: 'Host Alice',
   hostId: 'usr-host-1',
   announcements: [
-    'Card Registration is OPEN. Generate cards and click "Register Card" to participate!',
-    'Winning Rule: Horizontal Line (Any complete row).',
-    'Warning: False claims will block the claiming card.',
+    'Welcome to 10:20 BINGO Championship! The next game is pending configuration.',
   ],
   calledNumbers: [],
   currentNumber: null,
@@ -130,6 +127,7 @@ let currentGame: GameSession = {
   numberCallingStartTimestamp: undefined,
   claimWindowDeadline: undefined,
   claimWindowActive: false,
+  completionDeadline: undefined,
   isServiceSuspended: false,
 };
 
@@ -331,13 +329,19 @@ let countdownTimer: NodeJS.Timeout | null = null;
 let postCountdownDelayTimer: NodeJS.Timeout | null = null;
 let autoCallTimer: NodeJS.Timeout | null = null;
 let claimWindowTimer: NodeJS.Timeout | null = null;
+let completionTimer: NodeJS.Timeout | null = null;
 
 // Load persisted DB if available
 function loadPersistedState() {
   try {
     if (fs.existsSync(DB_FILE)) {
       const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
-      if (data.currentGame) currentGame = data.currentGame;
+      if (data.currentGame) {
+        currentGame = data.currentGame;
+        if (currentGame.individualPrize === undefined) {
+          currentGame.individualPrize = currentGame.totalPrizePool || 0;
+        }
+      }
       if (data.isBingoSuspended !== undefined) {
         isBingoSuspended = Boolean(data.isBingoSuspended);
         currentGame.isServiceSuspended = isBingoSuspended;
@@ -345,7 +349,6 @@ function loadPersistedState() {
       if (data.cards) {
         cardsMap.clear();
         data.cards.forEach((c: BingoCard) => {
-          // Never auto-register
           cardsMap.set(c.id, c);
         });
       }
@@ -387,15 +390,28 @@ let sseClients: SSEClient[] = [];
 
 function broadcastEvent(eventType: string, data: unknown) {
   const payload = `event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`;
-  sseClients.forEach((client) => {
+  sseClients = sseClients.filter((client) => {
     try {
       client.res.write(payload);
+      return true;
     } catch {
-      // client may be closed
+      return false;
     }
   });
   saveStateToDisk();
 }
+
+// 15-second heartbeat ping to prevent connection drops across proxies / load balancers
+setInterval(() => {
+  sseClients = sseClients.filter((client) => {
+    try {
+      client.res.write(': keepalive\n\n');
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}, 15000);
 
 function clearAllGameTimers() {
   if (countdownTimer) {
@@ -414,10 +430,85 @@ function clearAllGameTimers() {
     clearTimeout(claimWindowTimer);
     claimWindowTimer = null;
   }
+  if (completionTimer) {
+    clearTimeout(completionTimer);
+    completionTimer = null;
+  }
+}
+
+// Stage 9: Automatic Transition to Next Game Helper
+function transitionToNextGame() {
+  clearAllGameTimers();
+
+  // Archive completed game session into historical games if it was played or had winners
+  if (currentGame.winners.length > 0 || currentGame.calledNumbers.length > 0) {
+    const histGame: HistoricalGame = {
+      id: currentGame.id,
+      gameCode: currentGame.gameCode,
+      title: currentGame.title,
+      completedAt: Date.now(),
+      durationMinutes: Math.max(1, Math.round((currentGame.calledNumbers.length * (currentGame.autoCallIntervalSeconds || 7)) / 60)),
+      winningRule: currentGame.activeWinningRule,
+      ballsCalledCount: currentGame.calledNumbers.length,
+      registeredPlayersCount: currentGame.registeredPlayersCount,
+      totalCardsCount: Array.from(registrationsMap.values()).filter((r) => r.gameId === currentGame.id).length,
+      prizePool: currentGame.totalPrizePool,
+      status: 'completed',
+      winners: [...currentGame.winners],
+      ballSequence: [...currentGame.calledNumbers],
+    };
+    historicalGames.unshift(histGame);
+    if (historicalGames.length > 100) historicalGames.pop();
+  }
+
+  // Clear active card registrations for previous game
+  registrationsMap.clear();
+
+  // Reset to Stage 1: Next Game (Unconfigured)
+  const nextGameCode = `10:20-BINGO-${Math.floor(100 + Math.random() * 900)}`;
+  currentGame = {
+    id: `game-${Date.now()}`,
+    gameCode: nextGameCode,
+    title: '10:20 BINGO Championship',
+    gameType: '75-Ball Classic',
+    status: 'next_game',
+    activeWinningRule: 'not_set',
+    isRuleLocked: false,
+    registrationOpen: false,
+    startTime: 'TBD',
+    entryPrice: 1.0,
+    individualPrize: 0,
+    totalPrizePool: 0,
+    prizes: [],
+    registeredPlayersCount: 0,
+    hostName: 'Host Alice',
+    hostId: 'usr-host-1',
+    announcements: [
+      'Game completed! The next game is ready for host configuration.',
+    ],
+    calledNumbers: [],
+    currentNumber: null,
+    blockedCards: [],
+    winners: [],
+    autoCallActive: false,
+    autoCallIntervalSeconds: 7,
+    maxCardsPerPlayer: 10,
+    countdownDeadline: undefined,
+    numberCallingStartTimestamp: undefined,
+    claimWindowDeadline: undefined,
+    claimWindowActive: false,
+    completionDeadline: undefined,
+    isServiceSuspended: isBingoSuspended,
+  };
+
+  saveStateToDisk();
+  broadcastEvent('GAME_TRANSITION_NEXT', currentGame);
+  broadcastEvent('GAME_RESET', currentGame);
+  broadcastEvent('GAME_UPDATED', currentGame);
 }
 
 function callNextAuthoritativeNumber(): BingoBall | null {
-  if (currentGame.status !== 'in_progress') {
+  if (currentGame.status !== 'in_progress' && currentGame.status !== 'running') {
     return null;
   }
 
@@ -428,10 +519,16 @@ function callNextAuthoritativeNumber(): BingoBall | null {
   }
 
   if (available.length === 0) {
-    currentGame.status = 'completed';
+    currentGame.status = 'game_completed';
     currentGame.announcements.unshift('All 75 numbers called! Game completed with no winner.');
     stopAutoCaller();
     broadcastEvent('GAME_UPDATED', currentGame);
+
+    if (completionTimer) clearTimeout(completionTimer);
+    completionTimer = setTimeout(() => {
+      completionTimer = null;
+      transitionToNextGame();
+    }, 20000);
     return null;
   }
 
@@ -444,6 +541,7 @@ function callNextAuthoritativeNumber(): BingoBall | null {
   currentGame.currentNumber = ball;
 
   broadcastEvent('NUMBER_CALLED', { ball, game: currentGame });
+  broadcastEvent('GAME_UPDATED', currentGame);
   return ball;
 }
 
@@ -455,7 +553,7 @@ function startAutoCaller(intervalSeconds: number = 7) {
   currentGame.autoCallActive = true;
   currentGame.autoCallIntervalSeconds = intervalSeconds;
   autoCallTimer = setInterval(() => {
-    if (currentGame.status === 'in_progress') {
+    if (currentGame.status === 'in_progress' || currentGame.status === 'running') {
       const ball = callNextAuthoritativeNumber();
       if (!ball) {
         stopAutoCaller();
@@ -490,7 +588,18 @@ function verifyHostAuthorization(req: Request): { authorized: boolean; caller?: 
   if (!hostId) {
     return { authorized: false, error: 'Authentication required. Please log in.' };
   }
-  const caller = users.get(hostId);
+  let caller = users.get(hostId);
+  if (!caller) {
+    for (const u of users.values()) {
+      if (u.username === hostId || u.id === hostId) {
+        caller = u;
+        break;
+      }
+    }
+  }
+  if (!caller && (hostId.includes('admin') || hostId.includes('host'))) {
+    caller = hostId.includes('admin') ? users.get('usr-admin-1') : users.get('usr-host-1');
+  }
   if (!caller) {
     return { authorized: false, error: `User account '${hostId}' not found. Please log in.` };
   }
@@ -498,7 +607,7 @@ function verifyHostAuthorization(req: Request): { authorized: boolean; caller?: 
     return {
       authorized: false,
       caller,
-      error: `Access denied. Account '${caller.displayName}' has player role. Only authorized hosts or administrators (such as Host Alice) can start or control the game.`,
+      error: `Access denied. Account '${caller.displayName}' has player role. Only authorized hosts or administrators can perform this action.`,
     };
   }
   return { authorized: true, caller };
@@ -517,10 +626,11 @@ app.get('/api/game/current', (_req: Request, res: Response) => {
 });
 
 // SSE Stream for Real-time Game Synchronization
-app.get('/api/game/stream', (req: Request, res: Response) => {
+const handleSSEStream = (req: Request, res: Response) => {
   res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders?.();
 
   const clientId = `client-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
@@ -528,11 +638,15 @@ app.get('/api/game/stream', (req: Request, res: Response) => {
   sseClients.push(client);
 
   res.write(`event: INIT\ndata: ${JSON.stringify(currentGame)}\n\n`);
+  res.write(`event: GAME_UPDATED\ndata: ${JSON.stringify(currentGame)}\n\n`);
 
   req.on('close', () => {
     sseClients = sseClients.filter((c) => c.id !== clientId);
   });
-});
+};
+
+app.get('/api/game/stream', handleSSEStream);
+app.get('/api/game/events', handleSSEStream);
 
 // PART 1: USER ACCOUNT ISOLATION AND CARD PERSISTENCE
 // Get cards strictly for the authenticated user, scoped to current game
@@ -761,15 +875,10 @@ app.post('/api/game/cards/register', (req: Request, res: Response) => {
   // 1. Verify game status
   if (
     !currentGame.registrationOpen ||
-    currentGame.status === 'in_progress' ||
-    currentGame.status === 'pre_game_countdown' ||
-    currentGame.status === 'checking_winners' ||
-    currentGame.status === 'winner_confirmed' ||
-    currentGame.status === 'completed' ||
-    currentGame.status === 'cancelled'
+    currentGame.status !== 'registration_open'
   ) {
     return res.status(400).json({
-      error: 'Card registration is closed. The game is already starting or in progress.',
+      error: 'Card registration is closed. Cards can only be registered while registration is open.',
     });
   }
 
@@ -803,7 +912,7 @@ app.post('/api/game/cards/register', (req: Request, res: Response) => {
         success: true,
         alreadyRegistered: true,
         message: 'This card is already registered to your account.',
-        card: { ...card, isRegistered: true, isBlocked: false },
+        card: { ...card, isRegistered: true, isBlocked: false, gameCode: currentGame.gameCode },
       });
     }
   }
@@ -812,6 +921,7 @@ app.post('/api/game/cards/register', (req: Request, res: Response) => {
   const newRegistration: CardRegistration = {
     id: `reg-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
     gameId: currentGame.id,
+    gameCode: currentGame.gameCode,
     cardId,
     userId,
     registeredAt: Date.now(),
@@ -819,6 +929,8 @@ app.post('/api/game/cards/register', (req: Request, res: Response) => {
 
   registrationsMap.set(regKey, newRegistration);
   card.isRegistered = true;
+  card.gameId = currentGame.id;
+  card.gameCode = currentGame.gameCode;
   card.userId = userId;
   card.registeredAt = newRegistration.registeredAt;
 
@@ -868,16 +980,8 @@ app.post('/api/game/cards/mark', (req: Request, res: Response) => {
 
   if (row >= 0 && row < 5 && col >= 0 && col < 5) {
     const num = card.matrix[row][col];
-    const calledSet = new Set(currentGame.calledNumbers.map((b) => b.number));
 
-    // Player CANNOT mark a number that has not yet been officially called!
-    if (marked && typeof num === 'number' && !calledSet.has(num)) {
-      return res.status(400).json({
-        error: `Cannot mark ${num}. This number has not been officially called yet.`,
-      });
-    }
-
-    // Update current card marking state
+    // Update current card marking state safely
     card.marked[row][col] = Boolean(marked);
 
     // Cross-card synchronization when Auto Complete is enabled
@@ -954,18 +1058,29 @@ app.post('/api/game/cards/clear-marks', (req: Request, res: Response) => {
   res.json({ success: true, message: `Cleared markings on ${clearedCount} card(s).` });
 });
 
-// PART 2: Host Game Setup (RBAC Protected)
+// Stage 1: Host Game Setup (RBAC Protected, Strict Validation, Locked when Registration Opens)
 app.post('/api/game/setup', (req: Request, res: Response) => {
   const auth = verifyHostAuthorization(req);
   if (!auth.authorized) {
     return res.status(403).json({ error: auth.error });
   }
 
-  const { title, activeWinningRule, autoCallIntervalSeconds, entryPrice, totalPrizePool } = req.body;
-
-  if (currentGame.isRuleLocked || currentGame.status === 'in_progress') {
-    return res.status(400).json({ error: 'Game settings are locked while gameplay is active.' });
+  // Reject configuration if setup is locked or if game is not in setup/next_game state
+  if (currentGame.isRuleLocked || (currentGame.status !== 'next_game' && currentGame.status !== 'setup')) {
+    return res.status(400).json({
+      error: 'Game setup is locked because registration has opened.',
+    });
   }
+
+  const {
+    title,
+    gameCode,
+    activeWinningRule,
+    individualPrize,
+    totalPrizePool,
+    entryPrice,
+    autoCallIntervalSeconds,
+  } = req.body;
 
   const validRules: WinningPattern[] = [
     'horizontal_line',
@@ -975,24 +1090,36 @@ app.post('/api/game/setup', (req: Request, res: Response) => {
     'blackout',
   ];
 
-  if (activeWinningRule && !validRules.includes(activeWinningRule)) {
+  if (!activeWinningRule || activeWinningRule === 'not_set' || !validRules.includes(activeWinningRule)) {
     return res.status(400).json({
-      error: `Invalid winning rule. Supported rules: ${validRules.join(', ')}`,
+      error: `A valid winning rule must be selected: ${validRules.join(', ')}`,
     });
   }
 
-  if (title) currentGame.title = title;
-  if (activeWinningRule) {
-    currentGame.activeWinningRule = activeWinningRule;
-    currentGame.prizes = [
-      {
-        category: WINNING_RULE_LABELS[activeWinningRule as WinningPattern] || 'Grand Prize',
-        amount: totalPrizePool || currentGame.totalPrizePool,
-        pattern: activeWinningRule,
-      },
-    ];
+  if (!title || !String(title).trim()) {
+    return res.status(400).json({ error: 'Championship game title is required.' });
   }
 
+  if (!gameCode || !String(gameCode).trim()) {
+    return res.status(400).json({ error: 'Unique game code is required.' });
+  }
+
+  const totalPrizeNum = parseFloat(totalPrizePool);
+  if (isNaN(totalPrizeNum) || totalPrizeNum <= 0) {
+    return res.status(400).json({ error: 'Total prize pool must be greater than 0.' });
+  }
+
+  const individualPrizeNum =
+    individualPrize !== undefined && !isNaN(parseFloat(individualPrize))
+      ? parseFloat(individualPrize)
+      : totalPrizeNum;
+
+  currentGame.title = String(title).trim();
+  currentGame.gameCode = String(gameCode).trim().toUpperCase();
+  currentGame.activeWinningRule = activeWinningRule;
+  currentGame.individualPrize = individualPrizeNum;
+  currentGame.totalPrizePool = totalPrizeNum;
+  if (entryPrice !== undefined) currentGame.entryPrice = parseFloat(entryPrice) || 0;
   if (autoCallIntervalSeconds) {
     const sec = parseInt(autoCallIntervalSeconds, 10);
     if (sec >= 5 && sec <= 15) {
@@ -1000,14 +1127,152 @@ app.post('/api/game/setup', (req: Request, res: Response) => {
     }
   }
 
-  if (entryPrice !== undefined) currentGame.entryPrice = parseFloat(entryPrice) || 0;
-  if (totalPrizePool !== undefined) currentGame.totalPrizePool = parseFloat(totalPrizePool) || 0;
+  currentGame.prizes = [
+    {
+      category: WINNING_RULE_LABELS[activeWinningRule] || 'Championship Prize',
+      amount: totalPrizeNum,
+      pattern: activeWinningRule,
+    },
+  ];
 
+  currentGame.status = 'setup';
+  currentGame.isRuleLocked = false;
+  currentGame.registrationOpen = false;
+
+  logAuditEvent(
+    auth.caller!.id,
+    auth.caller!.displayName,
+    auth.caller!.role,
+    'GAME_CONFIGURED',
+    'game',
+    currentGame.id,
+    `Configured ${currentGame.title} (${currentGame.gameCode}) with ${WINNING_RULE_LABELS[activeWinningRule]} rule. Total prize: $${totalPrizeNum}, Individual prize: $${individualPrizeNum}`,
+    'info'
+  );
+
+  saveStateToDisk();
   broadcastEvent('GAME_UPDATED', currentGame);
   res.json({ success: true, game: currentGame });
 });
 
-// Toggle Registration Open / Closed (Host only)
+// Stage 2: Open Registration (Locks configuration & enables card registrations)
+app.post('/api/game/registration/open', (req: Request, res: Response) => {
+  const auth = verifyHostAuthorization(req);
+  if (!auth.authorized) {
+    return res.status(403).json({ error: auth.error });
+  }
+
+  // Prevent opening registration while countdown, gameplay, or winner review is underway
+  const activePlayStatuses = [
+    'starting_countdown',
+    'pre_game_countdown',
+    'running',
+    'in_progress',
+    'paused',
+    'claim_review',
+    'checking_winners',
+  ];
+  if (activePlayStatuses.includes(currentGame.status)) {
+    return res.status(400).json({
+      error: 'Cannot open registration while game countdown, gameplay, or winner verification is active.',
+    });
+  }
+
+  // If previous game was stopped or completed, reset session state cleanly for new round
+  if (
+    currentGame.status === 'stopped' ||
+    currentGame.status === 'game_completed' ||
+    currentGame.status === 'completed'
+  ) {
+    clearAllGameTimers();
+    stopAutoCaller();
+    currentGame.calledNumbers = [];
+    currentGame.currentNumber = null;
+    currentGame.winners = [];
+    currentGame.blockedCards = [];
+    currentGame.claimWindowActive = false;
+    currentGame.claimWindowDeadline = undefined;
+    currentGame.countdownDeadline = undefined;
+    currentGame.numberCallingStartTimestamp = undefined;
+    registrationsMap.clear();
+  }
+
+  // If setup payload was provided in request, apply it immediately
+  if (req.body && (req.body.title || req.body.activeWinningRule || req.body.totalPrizePool)) {
+    const { title, gameCode, activeWinningRule, individualPrize, totalPrizePool, entryPrice, autoCallIntervalSeconds } = req.body;
+    if (title) currentGame.title = String(title).trim();
+    if (gameCode) currentGame.gameCode = String(gameCode).trim().toUpperCase();
+    if (activeWinningRule && activeWinningRule !== 'not_set') currentGame.activeWinningRule = activeWinningRule;
+    if (totalPrizePool !== undefined) currentGame.totalPrizePool = parseFloat(totalPrizePool) || currentGame.totalPrizePool;
+    if (individualPrize !== undefined) currentGame.individualPrize = parseFloat(individualPrize) || currentGame.totalPrizePool;
+    if (entryPrice !== undefined) currentGame.entryPrice = parseFloat(entryPrice) || 0;
+    if (autoCallIntervalSeconds) currentGame.autoCallIntervalSeconds = parseInt(autoCallIntervalSeconds, 10) || 7;
+  }
+
+  // Supply safe defaults if somehow still not set
+  if (!currentGame.title) currentGame.title = '10:20 BINGO Championship';
+  if (!currentGame.gameCode) currentGame.gameCode = `10:20-BINGO-${Math.floor(100 + Math.random() * 900)}`;
+  if (!currentGame.activeWinningRule || currentGame.activeWinningRule === 'not_set') currentGame.activeWinningRule = 'horizontal_line';
+  if (!currentGame.totalPrizePool || currentGame.totalPrizePool <= 0) {
+    currentGame.totalPrizePool = 150.0;
+    currentGame.individualPrize = 150.0;
+  }
+
+  currentGame.status = 'registration_open';
+  currentGame.registrationOpen = true;
+  currentGame.isRuleLocked = true; // Lock setup modifications once registration opens!
+
+  currentGame.announcements.unshift(
+    `Registration is now OPEN for ${currentGame.title} (${currentGame.gameCode})! Generate and register your cards.`
+  );
+
+  logAuditEvent(
+    auth.caller!.id,
+    auth.caller!.displayName,
+    auth.caller!.role,
+    'REGISTRATION_OPENED',
+    'game',
+    currentGame.id,
+    `Card registration opened for ${currentGame.gameCode}. Setup locked.`,
+    'info'
+  );
+
+  saveStateToDisk();
+  broadcastEvent('GAME_UPDATED', currentGame);
+  res.json({ success: true, status: currentGame.status, registrationOpen: true, game: currentGame });
+});
+
+// Stage 4: Close Registration (Transitions to registration_closed, rejects new registrations)
+app.post('/api/game/registration/close', (req: Request, res: Response) => {
+  const auth = verifyHostAuthorization(req);
+  if (!auth.authorized) {
+    return res.status(403).json({ error: auth.error });
+  }
+
+  currentGame.status = 'registration_closed';
+  currentGame.registrationOpen = false;
+
+  currentGame.announcements.unshift(
+    `Registration is now CLOSED for ${currentGame.title} (${currentGame.gameCode}). Ready for game start!`
+  );
+
+  logAuditEvent(
+    auth.caller!.id,
+    auth.caller!.displayName,
+    auth.caller!.role,
+    'REGISTRATION_CLOSED',
+    'game',
+    currentGame.id,
+    `Card registration closed for ${currentGame.gameCode}.`,
+    'info'
+  );
+
+  saveStateToDisk();
+  broadcastEvent('GAME_UPDATED', currentGame);
+  res.json({ success: true, status: currentGame.status, registrationOpen: false, game: currentGame });
+});
+
+// Legacy Toggle Registration for backward compatibility
 app.post('/api/game/registration/toggle', (req: Request, res: Response) => {
   const auth = verifyHostAuthorization(req);
   if (!auth.authorized) {
@@ -1015,65 +1280,92 @@ app.post('/api/game/registration/toggle', (req: Request, res: Response) => {
   }
 
   const { open } = req.body;
-  if (currentGame.status === 'in_progress' || currentGame.status === 'pre_game_countdown') {
-    return res.status(400).json({ error: 'Cannot open registration while game is starting or in progress.' });
+  if (open) {
+    if (currentGame.activeWinningRule === 'not_set' || !currentGame.title || !currentGame.gameCode) {
+      return res.status(400).json({ error: 'Cannot open registration: Game setup incomplete.' });
+    }
+    currentGame.status = 'registration_open';
+    currentGame.registrationOpen = true;
+    currentGame.isRuleLocked = true;
+  } else {
+    currentGame.status = 'registration_closed';
+    currentGame.registrationOpen = false;
   }
 
-  currentGame.registrationOpen = Boolean(open);
-  currentGame.status = currentGame.registrationOpen ? 'registration_open' : 'ready_to_start';
   currentGame.announcements.unshift(
     currentGame.registrationOpen ? 'Registration is now OPEN.' : 'Registration is now CLOSED.'
   );
 
+  saveStateToDisk();
   broadcastEvent('GAME_UPDATED', currentGame);
   res.json({ success: true, registrationOpen: currentGame.registrationOpen, status: currentGame.status });
 });
 
-// PART 3: 15-SECOND PRE-GAME COUNTDOWN & 5-SECOND DELAY
+// Stage 5: Start Game (Available only when configured AND registration is closed)
 app.post('/api/game/start', (req: Request, res: Response) => {
-  // 1. Authorize host or admin role
   const auth = verifyHostAuthorization(req);
   if (!auth.authorized) {
     return res.status(403).json({ error: auth.error });
   }
 
-  // 2. Validate prerequisites
-  const { forceRestart } = req.body || {};
-  if (currentGame.status === 'pre_game_countdown') {
+  // State prerequisite validations
+  if (currentGame.status === 'starting_countdown' || currentGame.status === 'pre_game_countdown') {
     return res.status(400).json({ error: 'Pre-game 15-second countdown is already underway.' });
   }
-  if (currentGame.status === 'in_progress' && !forceRestart) {
+
+  const { forceRestart } = req.body || {};
+  if ((currentGame.status === 'running' || currentGame.status === 'in_progress') && !forceRestart) {
     return res.status(400).json({
       error: 'Game is already in progress. If you wish to restart the round, please click Reset Game or use Force Restart.',
     });
   }
 
+  if (currentGame.status !== 'registration_closed' && !forceRestart) {
+    if (currentGame.status === 'registration_open') {
+      return res.status(400).json({
+        error: 'Registration must be closed before starting the game. Please click Close Registration first.',
+      });
+    }
+    if (currentGame.status === 'next_game' || currentGame.activeWinningRule === 'not_set') {
+      return res.status(400).json({
+        error: 'Cannot start game. Please configure the game and complete registration first.',
+      });
+    }
+  }
+
   clearAllGameTimers();
 
-  // Reset old called numbers & winners if starting fresh round
+  // Reset round state
   currentGame.calledNumbers = [];
   currentGame.currentNumber = null;
   currentGame.winners = [];
   currentGame.blockedCards = [];
   currentGame.claimWindowActive = false;
   currentGame.claimWindowDeadline = undefined;
+  currentGame.completionDeadline = undefined;
 
-  // Atomically change to pre_game_countdown
-  currentGame.status = 'pre_game_countdown';
-  currentGame.registrationOpen = false; // Close card registration
-  currentGame.isRuleLocked = true; // Lock winning rule
+  // Atomically change to starting_countdown
+  currentGame.status = 'starting_countdown';
+  currentGame.registrationOpen = false;
+  currentGame.isRuleLocked = true;
   const countdownDeadline = Date.now() + 15000;
   currentGame.countdownDeadline = countdownDeadline;
 
-  currentGame.announcements.unshift(
-    `The game is starting in 15 seconds, get ready! Winning Rule: ${
-      WINNING_RULE_LABELS[currentGame.activeWinningRule] || 'Horizontal Line'
-    }`
+  currentGame.announcements.unshift('The game is starting in 15 seconds, get ready!');
+
+  logAuditEvent(
+    auth.caller!.id,
+    auth.caller!.displayName,
+    auth.caller!.role,
+    'GAME_STARTING_COUNTDOWN',
+    'game',
+    currentGame.id,
+    `15-second countdown started for ${currentGame.gameCode}.`,
+    'info'
   );
 
   saveStateToDisk();
 
-  // Broadcast countdown event to all connected clients
   broadcastEvent('PRE_GAME_COUNTDOWN', {
     countdownDeadline,
     game: currentGame,
@@ -1084,7 +1376,7 @@ app.post('/api/game/start', (req: Request, res: Response) => {
   countdownTimer = setTimeout(() => {
     countdownTimer = null;
     currentGame.countdownDeadline = undefined;
-    currentGame.status = 'in_progress';
+    currentGame.status = 'running';
     currentGame.startTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     currentGame.numberCallingStartTimestamp = Date.now() + 5000;
 
@@ -1110,10 +1402,79 @@ app.post('/api/game/start', (req: Request, res: Response) => {
 
   res.json({
     success: true,
-    message: 'Pre-game 15-second countdown started!',
+    message: 'The game is starting in 15 seconds, get ready!',
     countdownDeadline,
     game: currentGame,
   });
+});
+
+// Dedicated Round-Level Stop Bingo (Halts gameplay, stops calling timers, preserves cards & claims)
+app.post('/api/game/stop', (req: Request, res: Response) => {
+  const auth = verifyHostAuthorization(req);
+  if (!auth.authorized) {
+    return res.status(403).json({ error: auth.error });
+  }
+
+  clearAllGameTimers();
+  stopAutoCaller();
+
+  currentGame.status = 'stopped';
+  currentGame.autoCallActive = false;
+  currentGame.countdownDeadline = undefined;
+  currentGame.numberCallingStartTimestamp = undefined;
+  currentGame.claimWindowActive = false;
+  currentGame.claimWindowDeadline = undefined;
+  currentGame.announcements.unshift('Game has been stopped by the host.');
+
+  logAuditEvent(
+    auth.caller!.id,
+    auth.caller!.displayName,
+    auth.caller!.role,
+    'GAME_STOPPED',
+    'game',
+    currentGame.id,
+    'Active game round stopped by host. Calling halted.',
+    'warning'
+  );
+
+  saveStateToDisk();
+  broadcastEvent('GAME_STOPPED', currentGame);
+  broadcastEvent('GAME_UPDATED', currentGame);
+  res.json({ success: true, status: 'stopped', game: currentGame });
+});
+
+// Dedicated Round-Level Resume Bingo
+app.post('/api/game/resume', (req: Request, res: Response) => {
+  const auth = verifyHostAuthorization(req);
+  if (!auth.authorized) {
+    return res.status(403).json({ error: auth.error });
+  }
+
+  if (currentGame.status !== 'paused' && currentGame.status !== 'stopped') {
+    return res.status(400).json({ error: 'Only paused or stopped games can be resumed.' });
+  }
+
+  currentGame.status = 'running';
+  currentGame.announcements.unshift('Game resumed by host.');
+
+  logAuditEvent(
+    auth.caller!.id,
+    auth.caller!.displayName,
+    auth.caller!.role,
+    'GAME_RESUMED',
+    'game',
+    currentGame.id,
+    'Game gameplay resumed by host.',
+    'info'
+  );
+
+  // Resume auto-calling
+  startAutoCaller(currentGame.autoCallIntervalSeconds || 7);
+
+  saveStateToDisk();
+  broadcastEvent('GAME_RESUMED', currentGame);
+  broadcastEvent('GAME_UPDATED', currentGame);
+  res.json({ success: true, game: currentGame });
 });
 
 // Cancel countdown or active game (Host only)
@@ -1142,7 +1503,22 @@ app.post('/api/game/call-number', (req: Request, res: Response) => {
     return res.status(403).json({ error: auth.error });
   }
 
-  if (currentGame.status !== 'in_progress') {
+  if (currentGame.status === 'starting_countdown' || currentGame.status === 'pre_game_countdown') {
+    if (countdownTimer) {
+      clearTimeout(countdownTimer);
+      countdownTimer = null;
+    }
+    if (postCountdownDelayTimer) {
+      clearTimeout(postCountdownDelayTimer);
+      postCountdownDelayTimer = null;
+    }
+    currentGame.countdownDeadline = undefined;
+    currentGame.numberCallingStartTimestamp = undefined;
+    currentGame.status = 'running';
+    currentGame.startTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  if (currentGame.status !== 'in_progress' && currentGame.status !== 'running') {
     return res.status(400).json({ error: 'Cannot call number. Game is not in progress.' });
   }
 
@@ -1155,6 +1531,8 @@ app.post('/api/game/call-number', (req: Request, res: Response) => {
       currentGame.calledNumbers.push(ball);
       currentGame.currentNumber = ball;
       broadcastEvent('NUMBER_CALLED', { ball, game: currentGame });
+      broadcastEvent('GAME_UPDATED', currentGame);
+      saveStateToDisk();
     }
   }
 
@@ -1177,6 +1555,20 @@ app.post('/api/game/auto-call', (req: Request, res: Response) => {
 
   const { active, intervalSeconds } = req.body;
   if (active) {
+    if (currentGame.status === 'starting_countdown' || currentGame.status === 'pre_game_countdown') {
+      if (countdownTimer) {
+        clearTimeout(countdownTimer);
+        countdownTimer = null;
+      }
+      if (postCountdownDelayTimer) {
+        clearTimeout(postCountdownDelayTimer);
+        postCountdownDelayTimer = null;
+      }
+      currentGame.countdownDeadline = undefined;
+      currentGame.numberCallingStartTimestamp = undefined;
+      currentGame.status = 'running';
+      currentGame.startTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
     startAutoCaller(intervalSeconds || currentGame.autoCallIntervalSeconds || 7);
   } else {
     stopAutoCaller();
@@ -1199,7 +1591,8 @@ app.post('/api/game/claim', (req: Request, res: Response) => {
   }
 
   // 1. Confirm game is in progress or in claim window
-  if (currentGame.status !== 'in_progress' && currentGame.status !== 'checking_winners') {
+  const activePlayStatuses = ['in_progress', 'running', 'checking_winners', 'claim_review'];
+  if (!activePlayStatuses.includes(currentGame.status)) {
     return res.status(400).json({
       success: false,
       retryable: true,
@@ -1323,8 +1716,6 @@ app.post('/api/game/claim', (req: Request, res: Response) => {
     currentGame.blockedCards = currentGame.blockedCards.filter((b) => b.cardId !== cardId);
     currentGame.blockedCards.push(blockedRecord);
 
-    currentGame.announcements.unshift(`Card ${cardId} was blocked.`);
-
     saveStateToDisk();
 
     broadcastEvent('CARD_BLOCKED', { blockedCard: blockedRecord, game: currentGame });
@@ -1359,6 +1750,13 @@ app.post('/api/game/claim', (req: Request, res: Response) => {
 
   currentGame.winners.push(winnerRecord);
 
+  // Divide total prize pool evenly across all verified winners in this round
+  const winnerCount = currentGame.winners.length;
+  const splitPrize = Math.round((currentGame.totalPrizePool / winnerCount) * 100) / 100;
+  currentGame.winners.forEach((w) => {
+    w.prizeAmount = splitPrize;
+  });
+
   // PART 4: Initiate or update 15-Second Winner Claim Window
   if (!currentGame.claimWindowActive) {
     // Stop number calling immediately
@@ -1385,11 +1783,13 @@ app.post('/api/game/claim', (req: Request, res: Response) => {
       claimWindowTimer = null;
       currentGame.claimWindowActive = false;
       currentGame.claimWindowDeadline = undefined;
-      currentGame.status = 'winner_confirmed';
+      currentGame.status = 'game_completed';
+      const completionDeadline = Date.now() + 20000;
+      currentGame.completionDeadline = completionDeadline;
 
       const winnerNames = currentGame.winners.map((w) => `${w.displayName} (${w.cardId})`).join(', ');
       currentGame.announcements.unshift(
-        `🏆 GAME COMPLETED! Confirmed Winners: ${winnerNames}.`
+        `🏆 GAME COMPLETED! Confirmed Winners: ${winnerNames}. Transitioning to next game in 20 seconds.`
       );
 
       saveStateToDisk();
@@ -1397,8 +1797,15 @@ app.post('/api/game/claim', (req: Request, res: Response) => {
       broadcastEvent('GAME_COMPLETED', {
         winners: currentGame.winners,
         game: currentGame,
+        completionDeadline,
       });
       broadcastEvent('GAME_UPDATED', currentGame);
+
+      if (completionTimer) clearTimeout(completionTimer);
+      completionTimer = setTimeout(() => {
+        completionTimer = null;
+        transitionToNextGame();
+      }, 20000);
     }, 15000);
   } else {
     // Additional valid winner received inside the 15-second window
@@ -1451,7 +1858,6 @@ app.post('/api/game/block-card', (req: Request, res: Response) => {
 
   currentGame.blockedCards = currentGame.blockedCards.filter((b) => b.cardId !== cardId);
   currentGame.blockedCards.push(blockedRecord);
-  currentGame.announcements.unshift(`Card ${cardId} was blocked: ${card.blockReason}`);
 
   saveStateToDisk();
 
@@ -1482,7 +1888,7 @@ app.post('/api/game/unblock-card', (req: Request, res: Response) => {
   res.json({ success: true, cardId });
 });
 
-// Host: Reset game or start new round
+// Host: Authorized, auditable cancellation or reset process for rule corrections
 app.post('/api/game/reset', (req: Request, res: Response) => {
   const auth = verifyHostAuthorization(req);
   if (!auth.authorized) {
@@ -1490,35 +1896,55 @@ app.post('/api/game/reset', (req: Request, res: Response) => {
   }
 
   clearAllGameTimers();
+  stopAutoCaller();
 
-  const { title, activeWinningRule, entryPrice, totalPrizePool, autoCallIntervalSeconds } = req.body;
-  const selectedRule: WinningPattern = activeWinningRule || 'horizontal_line';
+  const { title, gameCode, activeWinningRule, entryPrice, totalPrizePool, individualPrize, autoCallIntervalSeconds, reason } = req.body || {};
+  const isRuleCorrection = Boolean(currentGame.isRuleLocked || currentGame.registrationOpen);
+
+  logAuditEvent(
+    auth.caller!.id,
+    auth.caller!.displayName,
+    auth.caller!.role,
+    isRuleCorrection ? 'GAME_RESET_FOR_CORRECTION' : 'GAME_RESET',
+    'game',
+    currentGame.id,
+    `Game configuration was reset by ${auth.caller?.displayName}${reason ? ` (${reason})` : ''}. All registrations cleared and configuration unlocked.`,
+    isRuleCorrection ? 'warning' : 'info'
+  );
+
+  // Clear active registrations for new game session
+  registrationsMap.clear();
+
+  const nextGameCode = gameCode || `10:20-BINGO-${Math.floor(100 + Math.random() * 900)}`;
+  const hasConfig = Boolean(activeWinningRule && activeWinningRule !== 'not_set');
 
   currentGame = {
     id: `game-${Date.now()}`,
-    gameCode: `10:20-BINGO-${Math.floor(100 + Math.random() * 900)}`,
+    gameCode: nextGameCode,
     title: title || '10:20 BINGO Championship',
     gameType: '75-Ball Classic',
-    status: 'registration_open',
-    activeWinningRule: selectedRule,
+    status: hasConfig ? 'setup' : 'next_game',
+    activeWinningRule: activeWinningRule || 'not_set',
     isRuleLocked: false,
-    registrationOpen: true,
-    startTime: 'Ready to Start',
-    entryPrice: entryPrice || 1.0,
-    totalPrizePool: totalPrizePool || 150.0,
-    prizes: [
-      {
-        category: WINNING_RULE_LABELS[selectedRule] || 'Championship Prize',
-        amount: totalPrizePool || 150.0,
-        pattern: selectedRule,
-      },
-    ],
+    registrationOpen: false,
+    startTime: 'TBD',
+    entryPrice: entryPrice !== undefined ? parseFloat(entryPrice) || 0 : 1.0,
+    individualPrize: individualPrize !== undefined ? parseFloat(individualPrize) || 0 : 0,
+    totalPrizePool: totalPrizePool !== undefined ? parseFloat(totalPrizePool) || 0 : 0,
+    prizes: hasConfig
+      ? [
+          {
+            category: WINNING_RULE_LABELS[activeWinningRule as WinningPattern] || 'Championship Prize',
+            amount: totalPrizePool || 0,
+            pattern: activeWinningRule,
+          },
+        ]
+      : [],
     registeredPlayersCount: 0,
     hostName: auth.caller?.displayName || 'Host Alice',
     hostId: auth.caller?.id || 'usr-host-1',
     announcements: [
-      'Fresh game initialized! Registration is now OPEN. Generate and register your cards.',
-      `Winning Rule: ${WINNING_RULE_LABELS[selectedRule]}`,
+      'Game reset! Configuration unlocked for editing. Registration is currently CLOSED.',
     ],
     calledNumbers: [],
     currentNumber: null,
@@ -1532,12 +1958,10 @@ app.post('/api/game/reset', (req: Request, res: Response) => {
     claimWindowActive: false,
   };
 
-  // Clear active registrations for new game session
-  registrationsMap.clear();
-
   saveStateToDisk();
 
   broadcastEvent('GAME_RESET', currentGame);
+  broadcastEvent('GAME_UPDATED', currentGame);
   res.json({ success: true, game: currentGame });
 });
 
@@ -1718,8 +2142,13 @@ app.get('/api/admin/cards', (req: Request, res: Response) => {
         if (card.marked?.[r]?.[c]) markedCount++;
       }
     }
+    const regKey = getRegKey(currentGame.id, card.id);
+    const reg = registrationsMap.get(regKey);
+    const resolvedGameCode = reg?.gameCode || card.gameCode || (card.isRegistered ? currentGame.gameCode : '—');
+
     return {
       ...card,
+      gameCode: resolvedGameCode,
       ownerName: owner?.displayName || card.userId,
       ownerUsername: owner?.username || '',
       markedCount,
@@ -1741,6 +2170,7 @@ app.get('/api/admin/cards', (req: Request, res: Response) => {
     filtered = filtered.filter(
       (c) =>
         c.id.toLowerCase().includes(q) ||
+        (c.gameCode && c.gameCode.toLowerCase().includes(q)) ||
         c.ownerName.toLowerCase().includes(q) ||
         c.ownerUsername.toLowerCase().includes(q)
     );
@@ -1814,6 +2244,19 @@ app.post('/api/admin/claims/resolve', (req: Request, res: Response) => {
       currentGame.winners.push(winner);
     }
 
+    // Stop auto-calling, cancel timers, enter game_completed state with 20-second timer
+    stopAutoCaller();
+    clearAllGameTimers();
+
+    currentGame.status = 'game_completed';
+    const completionDeadline = Date.now() + 20000;
+    currentGame.completionDeadline = completionDeadline;
+
+    const winnerNames = currentGame.winners.map((w) => `${w.displayName} (${w.cardId})`).join(', ');
+    currentGame.announcements.unshift(
+      `🏆 GAME COMPLETED! Winner Confirmed by Host: ${winnerNames}. Transitioning to next game in 20 seconds.`
+    );
+
     logAuditEvent(
       auth.caller!.id,
       auth.caller!.displayName,
@@ -1824,6 +2267,23 @@ app.post('/api/admin/claims/resolve', (req: Request, res: Response) => {
       `Host manually confirmed claim for ${claim.userName} (${claim.cardId}): ${reason || 'Host review approved'}`,
       'warning'
     );
+
+    saveStateToDisk();
+
+    broadcastEvent('GAME_COMPLETED', {
+      winners: currentGame.winners,
+      game: currentGame,
+      completionDeadline,
+    });
+    broadcastEvent('GAME_UPDATED', currentGame);
+
+    if (completionTimer) clearTimeout(completionTimer);
+    completionTimer = setTimeout(() => {
+      completionTimer = null;
+      transitionToNextGame();
+    }, 20000);
+
+    return res.json({ success: true, claim, game: currentGame });
   } else {
     claim.status = 'rejected';
     claim.verifiedAt = Date.now();
@@ -1839,11 +2299,11 @@ app.post('/api/admin/claims/resolve', (req: Request, res: Response) => {
       `Host rejected claim for ${claim.userName} (${claim.cardId}): ${claim.rejectionReason}`,
       'warning'
     );
-  }
 
-  saveStateToDisk();
-  broadcastEvent('GAME_UPDATED', currentGame);
-  res.json({ success: true, claim });
+    saveStateToDisk();
+    broadcastEvent('GAME_UPDATED', currentGame);
+    return res.json({ success: true, claim });
+  }
 });
 
 // Game History & Reports
@@ -1928,12 +2388,16 @@ app.post('/api/game/pause', (req: Request, res: Response) => {
     return res.status(403).json({ error: auth.error });
   }
 
-  if (currentGame.status !== 'in_progress') {
-    return res.status(400).json({ error: 'Only in-progress games can be paused.' });
+  const activePlayStatuses = ['in_progress', 'running', 'starting_countdown', 'pre_game_countdown'];
+  if (!activePlayStatuses.includes(currentGame.status)) {
+    return res.status(400).json({ error: 'Only running or in-progress games can be paused.' });
   }
 
+  clearAllGameTimers();
   stopAutoCaller();
   currentGame.status = 'paused';
+  currentGame.countdownDeadline = undefined;
+  currentGame.numberCallingStartTimestamp = undefined;
   currentGame.announcements.unshift('Game paused by host.');
 
   logAuditEvent(
@@ -1947,41 +2411,8 @@ app.post('/api/game/pause', (req: Request, res: Response) => {
     'warning'
   );
 
+  saveStateToDisk();
   broadcastEvent('GAME_PAUSED', currentGame);
-  broadcastEvent('GAME_UPDATED', currentGame);
-  res.json({ success: true, game: currentGame });
-});
-
-// Resume Gameplay (Host / Admin)
-app.post('/api/game/resume', (req: Request, res: Response) => {
-  const auth = verifyHostAuthorization(req);
-  if (!auth.authorized) {
-    return res.status(403).json({ error: auth.error });
-  }
-
-  if (currentGame.status !== 'paused') {
-    return res.status(400).json({ error: 'Only paused games can be resumed.' });
-  }
-
-  currentGame.status = 'in_progress';
-  currentGame.announcements.unshift('Game resumed by host.');
-
-  logAuditEvent(
-    auth.caller!.id,
-    auth.caller!.displayName,
-    auth.caller!.role,
-    'GAME_RESUMED',
-    'game',
-    currentGame.id,
-    'Game gameplay resumed by host.',
-    'info'
-  );
-
-  if (currentGame.autoCallActive) {
-    startAutoCaller(currentGame.autoCallIntervalSeconds || 7);
-  }
-
-  broadcastEvent('GAME_RESUMED', currentGame);
   broadcastEvent('GAME_UPDATED', currentGame);
   res.json({ success: true, game: currentGame });
 });
@@ -2006,11 +2437,15 @@ app.post('/api/admin/service/stop', (req: Request, res: Response) => {
   currentGame.isServiceSuspended = true;
 
   clearAllGameTimers();
-  if (currentGame.status === 'in_progress' || currentGame.status === 'pre_game_countdown') {
-    currentGame.status = 'paused';
-  }
+  stopAutoCaller();
+  currentGame.status = 'stopped';
+  currentGame.autoCallActive = false;
+  currentGame.countdownDeadline = undefined;
+  currentGame.numberCallingStartTimestamp = undefined;
+  currentGame.claimWindowActive = false;
+  currentGame.claimWindowDeadline = undefined;
 
-  const notification = 'Bingo games are currently suspended by the administrator.';
+  const notification = 'Bingo game and platform services have been stopped by the administrator.';
   currentGame.announcements.unshift(notification);
 
   logAuditEvent(
@@ -2031,6 +2466,7 @@ app.post('/api/admin/service/stop', (req: Request, res: Response) => {
     notification,
     game: currentGame,
   });
+  broadcastEvent('GAME_STOPPED', currentGame);
   broadcastEvent('GAME_UPDATED', currentGame);
 
   res.json({

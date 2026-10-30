@@ -9,6 +9,7 @@ export interface BingoBall {
 }
 
 export type WinningPattern =
+  | 'not_set'
   | 'horizontal_line'
   | 'vertical_line'
   | 'diagonal_line'
@@ -16,20 +17,29 @@ export type WinningPattern =
   | 'blackout';
 
 export type GameStatus =
+  | 'next_game'
   | 'setup'
   | 'registration_open'
+  | 'registration_closed'
+  | 'starting_countdown'
+  | 'running'
+  | 'paused'
+  | 'stopped'
+  | 'claim_review'
+  | 'game_completed'
+  | 'cancelled'
+  // Legacy status aliases for backward compatibility:
   | 'ready_to_start'
   | 'pre_game_countdown'
   | 'in_progress'
-  | 'paused'
   | 'checking_winners'
   | 'winner_confirmed'
-  | 'completed'
-  | 'cancelled';
+  | 'completed';
 
 export interface BingoCard {
   id: string;
   gameId: string;
+  gameCode?: string;
   userId: string;
   matrix: (number | 'FREE')[][]; // 5 rows x 5 cols
   marked: boolean[][]; // 5x5 boolean
@@ -45,6 +55,7 @@ export interface BingoCard {
 export interface CardRegistration {
   id: string;
   gameId: string;
+  gameCode: string;
   cardId: string;
   userId: string;
   registeredAt: number;
@@ -104,11 +115,12 @@ export interface GameSession {
   gameType: string;
   status: GameStatus;
   activeWinningRule: WinningPattern; // Single active winning rule for the shared game
-  isRuleLocked: boolean; // Locked once game starts
+  isRuleLocked: boolean; // Locked once registration opens
   registrationOpen: boolean;
   startTime: string;
   entryPrice: number;
-  totalPrizePool: number;
+  individualPrize: number; // Stored separately from total prize pool
+  totalPrizePool: number; // Stored separately from individual prize
   prizes: PrizeTier[];
   registeredPlayersCount: number;
   hostName: string;
@@ -125,7 +137,8 @@ export interface GameSession {
   numberCallingStartTimestamp?: number; // Start of calling after 5s post-countdown delay
   claimWindowDeadline?: number; // 15s winner claim window end timestamp
   claimWindowActive?: boolean;
-  isServiceSuspended?: boolean; // Global admin Stop/Start Bingo state
+  completionDeadline?: number; // Exact 20-second Game Completed end timestamp
+  isServiceSuspended?: boolean; // Global admin Stop/Start Bingo service state
 }
 
 export interface User {
@@ -204,6 +217,7 @@ export interface HistoricalGame {
   ballsCalledCount: number;
   registeredPlayersCount: number;
   totalCardsCount: number;
+  individualPrize?: number;
   prizePool: number;
   status: 'completed' | 'cancelled';
   winners: Winner[];

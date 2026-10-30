@@ -234,9 +234,12 @@ export function AdminDashboard({
       if (res.ok) {
         onRefreshGame();
         fetchAllAdminData();
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Failed to pause game.');
       }
     } catch {
-      alert('Failed to pause game.');
+      alert('Network failure pausing game.');
     }
   };
 
@@ -252,9 +255,12 @@ export function AdminDashboard({
       if (res.ok) {
         onRefreshGame();
         fetchAllAdminData();
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Failed to resume game.');
       }
     } catch {
-      alert('Failed to resume game.');
+      alert('Network failure resuming game.');
     }
   };
 
@@ -293,28 +299,74 @@ export function AdminDashboard({
       if (res.ok) {
         onRefreshGame();
         fetchAllAdminData();
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Failed to toggle auto caller.');
       }
     } catch {
       alert('Failed to toggle auto caller.');
     }
   };
 
-  const handleToggleRegistration = async (open: boolean) => {
+  const handleOpenRegistration = async () => {
+    const res = await fetch('/api/game/registration/open', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-id': currentUser?.id || 'usr-host-1',
+      },
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to open registration.');
+    }
+    onRefreshGame();
+    fetchAllAdminData();
+  };
+
+  const handleCloseRegistration = async () => {
+    const res = await fetch('/api/game/registration/close', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-id': currentUser?.id || 'usr-host-1',
+      },
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to close registration.');
+    }
+    onRefreshGame();
+    fetchAllAdminData();
+  };
+
+  const handleStopGameRound = async () => {
+    if (!window.confirm('Stop active Bingo game round? This will halt number calling and preserve all player cards and marks.')) return;
     try {
-      const res = await fetch('/api/game/registration/toggle', {
+      const res = await fetch('/api/game/stop', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-user-id': currentUser?.id || 'usr-host-1',
         },
-        body: JSON.stringify({ open }),
       });
       if (res.ok) {
         onRefreshGame();
         fetchAllAdminData();
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Failed to stop game round.');
       }
     } catch {
-      alert('Failed to toggle registration.');
+      alert('Network failure stopping game round.');
+    }
+  };
+
+  const handleToggleRegistration = async (open: boolean) => {
+    if (open) {
+      await handleOpenRegistration();
+    } else {
+      await handleCloseRegistration();
     }
   };
 
@@ -331,6 +383,9 @@ export function AdminDashboard({
       if (res.ok) {
         onRefreshGame();
         fetchAllAdminData();
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Failed to cancel game.');
       }
     } catch {
       alert('Failed to cancel game.');
@@ -338,23 +393,24 @@ export function AdminDashboard({
   };
 
   const handleResetGame = async (config?: any) => {
-    if (!window.confirm('Reset this game session and start fresh for registration?')) return;
-    try {
-      const res = await fetch('/api/game/reset', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': currentUser?.id || 'usr-host-1',
-        },
-        body: JSON.stringify(config || {}),
-      });
-      if (res.ok) {
-        onRefreshGame();
-        fetchAllAdminData();
-      }
-    } catch {
-      alert('Failed to reset game.');
+    // Only show confirmation if caller didn't already confirm
+    if (!config?.skipConfirm && !config?.reason) {
+      if (!window.confirm('Reset this game session and start fresh for registration?')) return;
     }
+    const res = await fetch('/api/game/reset', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-id': currentUser?.id || 'usr-host-1',
+      },
+      body: JSON.stringify(config || {}),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to reset game.');
+    }
+    onRefreshGame();
+    fetchAllAdminData();
   };
 
   const handleSaveSetup = async (params: any) => {
@@ -732,6 +788,9 @@ export function AdminDashboard({
                 onStartGame={handleStartGame}
                 onPauseGame={handlePauseGame}
                 onResumeGame={handleResumeGame}
+                onStopGameRound={handleStopGameRound}
+                onOpenRegistration={handleOpenRegistration}
+                onCloseRegistration={handleCloseRegistration}
                 onCallNumber={() => handleCallNumber()}
                 onToggleAutoCall={handleToggleAutoCall}
                 onToggleRegistration={handleToggleRegistration}
@@ -746,6 +805,8 @@ export function AdminDashboard({
                 game={game}
                 onSaveSetup={handleSaveSetup}
                 onResetGame={handleResetGame}
+                onOpenRegistration={handleOpenRegistration}
+                onCloseRegistration={handleCloseRegistration}
               />
             )}
 
@@ -757,6 +818,9 @@ export function AdminDashboard({
                 onStartGame={handleStartGame}
                 onPauseGame={handlePauseGame}
                 onResumeGame={handleResumeGame}
+                onStopGameRound={handleStopGameRound}
+                onOpenRegistration={handleOpenRegistration}
+                onCloseRegistration={handleCloseRegistration}
                 onCallNumber={handleCallNumber}
                 onToggleAutoCall={handleToggleAutoCall}
                 onCancelGame={handleCancelGame}

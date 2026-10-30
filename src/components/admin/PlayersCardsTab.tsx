@@ -107,6 +107,7 @@ export function PlayersCardsTab({
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
                 <tr>
                   <th className="px-4 py-3">Card ID</th>
+                  <th className="px-4 py-3">Game Code</th>
                   <th className="px-4 py-3">Owner</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Marked Cells</th>
@@ -117,7 +118,7 @@ export function PlayersCardsTab({
               <tbody className="divide-y divide-slate-100 font-medium">
                 {filteredCards.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                    <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
                       No cards match current filter.
                     </td>
                   </tr>
@@ -125,6 +126,9 @@ export function PlayersCardsTab({
                   filteredCards.map((c) => (
                     <tr key={c.id} className="hover:bg-slate-50/80 transition">
                       <td className="px-4 py-3 font-mono font-bold text-slate-900">{c.id}</td>
+                      <td className="px-4 py-3 font-mono font-semibold text-indigo-600">
+                        {c.gameCode || '—'}
+                      </td>
                       <td className="px-4 py-3 text-slate-700">{c.ownerName || c.userId}</td>
                       <td className="px-4 py-3">
                         {c.isBlocked ? (

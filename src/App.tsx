@@ -30,6 +30,7 @@ import { NumberDetailModal } from './components/NumberDetailModal';
 import { SplashScreen } from './components/SplashScreen';
 import { HostControlsModal } from './components/HostControlsModal';
 import { AdminDashboard } from './components/admin/AdminDashboard';
+import { WINNING_RULE_LABELS } from './utils/bingoRules';
 import { Plus } from 'lucide-react';
 
 export default function App() {
@@ -150,7 +151,18 @@ export default function App() {
         const cardsRes = await fetch(`/api/game/cards?userId=${currentUser.id}`);
         if (cardsRes.ok) {
           const cardsData: BingoCard[] = await cardsRes.json();
-          setCards(cardsData);
+          setCards((prevCards) => {
+            if (!prevCards || prevCards.length === 0) return cardsData;
+            return cardsData.map((newCard) => {
+              const prev = prevCards.find((c) => c.id === newCard.id);
+              if (!prev) return newCard;
+              // Preserve client-marked numbers so changing settings never unmarks cells
+              const mergedMarked = newCard.marked.map((row, r) =>
+                row.map((cell, c) => (prev.marked?.[r]?.[c] ?? cell))
+              );
+              return { ...newCard, marked: mergedMarked };
+            });
+          });
         }
       } else {
         setCards([]);
@@ -162,93 +174,227 @@ export default function App() {
     }
   };
 
+  // Only refetch on currentUser switch (not on sound/preference adjustments)
   useEffect(() => {
     fetchGameAndCards();
+  }, [currentUser]);
+
+  // Synchronize audio preferences without refetching cards or wiping local marks
+  useEffect(() => {
     soundManager.setPreferences(
       userPreferences.soundEnabled,
       userPreferences.voiceCallerEnabled,
       userPreferences.vibrationEnabled
     );
-  }, [currentUser, userPreferences]);
+  }, [userPreferences.soundEnabled, userPreferences.voiceCallerEnabled, userPreferences.vibrationEnabled]);
 
   // Server-Sent Events (SSE) Listener for Real-Time Updates
   useEffect(() => {
-    if (!currentUser) return;
-    const sse = new EventSource(`/api/game/events?userId=${currentUser.id}`);
+    let sse: EventSource | null = null;
+    let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 
-    sse.addEventListener('GAME_UPDATED', (e: MessageEvent) => {
+    const setupSSE = () => {
       try {
-        const updatedGame: GameSession = JSON.parse(e.data);
-        setGame(updatedGame);
+        const url = `/api/game/events${currentUser?.id ? `?userId=${currentUser.id}` : ''}`;
+        sse = new EventSource(url);
 
-        const newCount = updatedGame.calledNumbers?.length || 0;
-        if (newCount > prevBallCountRef.current) {
-          const latest = updatedGame.calledNumbers[newCount - 1];
-          if (latest) {
-            soundManager.playBallPop();
-            soundManager.speakCall(latest.letter, latest.number);
+        const handleGameUpdate = (updatedGame: GameSession) => {
+          if (!updatedGame) return;
+          setGame(updatedGame);
+
+          const newCount = updatedGame.calledNumbers?.length || 0;
+          if (newCount > prevBallCountRef.current && prevBallCountRef.current > 0) {
+            const latest = updatedGame.calledNumbers[newCount - 1];
+            if (latest) {
+              soundManager.playBallPop();
+              soundManager.speakCall(latest.letter, latest.number);
+            }
           }
-        }
-        prevBallCountRef.current = newCount;
+          prevBallCountRef.current = newCount;
+        };
+
+        sse.addEventListener('INIT', (e: MessageEvent) => {
+          try {
+            const data: GameSession = JSON.parse(e.data);
+            handleGameUpdate(data);
+          } catch {}
+        });
+
+        sse.addEventListener('GAME_UPDATED', (e: MessageEvent) => {
+          try {
+            const data: GameSession = JSON.parse(e.data);
+            handleGameUpdate(data);
+          } catch (err) {
+            console.error('SSE GAME_UPDATED parse error:', err);
+          }
+        });
+
+        sse.addEventListener('NUMBER_CALLED', (e: MessageEvent) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.game) {
+              handleGameUpdate(data.game);
+            } else if (data.ball) {
+              setGame((prev) => {
+                if (!prev) return prev;
+                const exists = prev.calledNumbers.some((b) => b.number === data.ball.number);
+                if (exists) return prev;
+                return {
+                  ...prev,
+                  calledNumbers: [...prev.calledNumbers, data.ball],
+                  currentNumber: data.ball,
+                };
+              });
+              soundManager.playBallPop();
+              soundManager.speakCall(data.ball.letter, data.ball.number);
+            }
+          } catch (err) {
+            console.error('SSE NUMBER_CALLED parse error:', err);
+          }
+        });
+
+        sse.addEventListener('PRE_GAME_COUNTDOWN', (e: MessageEvent) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.game) handleGameUpdate(data.game);
+          } catch {}
+        });
+
+        sse.addEventListener('GAME_STARTED', (e: MessageEvent) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.game) handleGameUpdate(data.game);
+          } catch {}
+        });
+
+        sse.addEventListener('GAME_STOPPED', (e: MessageEvent) => {
+          try {
+            const data = JSON.parse(e.data);
+            handleGameUpdate(data);
+          } catch {}
+        });
+
+        sse.addEventListener('GAME_RESUMED', (e: MessageEvent) => {
+          try {
+            const data = JSON.parse(e.data);
+            handleGameUpdate(data);
+          } catch {}
+        });
+
+        sse.addEventListener('GAME_RESET', (e: MessageEvent) => {
+          try {
+            const data = JSON.parse(e.data);
+            handleGameUpdate(data);
+            fetchGameAndCards();
+          } catch {}
+        });
+
+        sse.addEventListener('GAME_TRANSITION_NEXT', (e: MessageEvent) => {
+          try {
+            const data = JSON.parse(e.data);
+            handleGameUpdate(data);
+            fetchGameAndCards();
+          } catch {}
+        });
+
+        sse.addEventListener('CLAIM_WINDOW_STARTED', (e: MessageEvent) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.game) handleGameUpdate(data.game);
+          } catch {}
+        });
+
+        sse.addEventListener('WINNER_VERIFIED_IN_WINDOW', (e: MessageEvent) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.game) handleGameUpdate(data.game);
+          } catch {}
+        });
+
+        sse.addEventListener('GAME_COMPLETED', (e: MessageEvent) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.game) handleGameUpdate(data.game);
+          } catch {}
+        });
+
+        sse.addEventListener('BINGO_SERVICE_STOPPED', () => {
+          setGame((prev) => (prev ? { ...prev, isServiceSuspended: true } : prev));
+        });
+
+        sse.addEventListener('BINGO_SERVICE_STARTED', () => {
+          setGame((prev) => (prev ? { ...prev, isServiceSuspended: false } : prev));
+          fetchGameAndCards();
+        });
+
+        sse.addEventListener('CARD_REGISTERED', (e: MessageEvent) => {
+          try {
+            const reg = JSON.parse(e.data);
+            setCards((prev) =>
+              prev.map((c) => (c.id === reg.cardId ? { ...c, isRegistered: true } : c))
+            );
+          } catch {}
+        });
+
+        sse.addEventListener('CARD_DELETED', (e: MessageEvent) => {
+          try {
+            const del = JSON.parse(e.data);
+            if (del.cardId) {
+              setCards((prev) => prev.filter((c) => c.id !== del.cardId));
+            }
+          } catch {}
+        });
+
+        sse.addEventListener('CARD_BLOCKED', (e: MessageEvent) => {
+          try {
+            const blk = JSON.parse(e.data);
+            setCards((prev) =>
+              prev.map((c) =>
+                c.id === blk.cardId ? { ...c, isBlocked: true, blockReason: blk.reason } : c
+              )
+            );
+          } catch {}
+        });
+
+        sse.addEventListener('WINNER_CONFIRMED', (e: MessageEvent) => {
+          try {
+            const winner: Winner = JSON.parse(e.data);
+            soundManager.playWinFanfare();
+            if (currentUser && winner.userId === currentUser.id) {
+              setCelebrationWinner(winner);
+            }
+          } catch {}
+        });
+
+        sse.onerror = () => {
+          if (sse) sse.close();
+          if (!reconnectTimeout) {
+            reconnectTimeout = setTimeout(() => {
+              reconnectTimeout = null;
+              setupSSE();
+            }, 2500);
+          }
+        };
       } catch (err) {
-        console.error('SSE GAME_UPDATED parse error:', err);
+        console.error('SSE initialization error:', err);
       }
-    });
+    };
 
-    sse.addEventListener('BINGO_SERVICE_STOPPED', () => {
-      setGame((prev) => (prev ? { ...prev, isServiceSuspended: true } : prev));
-    });
-
-    sse.addEventListener('BINGO_SERVICE_STARTED', () => {
-      setGame((prev) => (prev ? { ...prev, isServiceSuspended: false } : prev));
-      fetchGameAndCards();
-    });
-
-    sse.addEventListener('CARD_REGISTERED', (e: MessageEvent) => {
-      try {
-        const reg = JSON.parse(e.data);
-        setCards((prev) =>
-          prev.map((c) => (c.id === reg.cardId ? { ...c, isRegistered: true } : c))
-        );
-      } catch {
-        // Ignore
-      }
-    });
-
-    sse.addEventListener('CARD_BLOCKED', (e: MessageEvent) => {
-      try {
-        const blk = JSON.parse(e.data);
-        setCards((prev) =>
-          prev.map((c) =>
-            c.id === blk.cardId ? { ...c, isBlocked: true, blockReason: blk.reason } : c
-          )
-        );
-      } catch {
-        // Ignore
-      }
-    });
-
-    sse.addEventListener('WINNER_CONFIRMED', (e: MessageEvent) => {
-      try {
-        const winner: Winner = JSON.parse(e.data);
-        soundManager.playWinFanfare();
-        if (winner.userId === currentUser.id) {
-          setCelebrationWinner(winner);
-        }
-      } catch {
-        // Ignore
-      }
-    });
+    setupSSE();
 
     return () => {
-      sse.close();
+      if (sse) sse.close();
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
     };
-  }, [currentUser]);
+  }, [currentUser?.id]);
 
-  // Timers countdown calculation
+  // Timers countdown calculation (ticks every 250ms for smooth live updates)
   useEffect(() => {
     const timer = setInterval(() => {
-      if (game?.status === 'pre_game_countdown' && game.countdownDeadline) {
+      if (
+        (game?.status === 'starting_countdown' || game?.status === 'pre_game_countdown') &&
+        game.countdownDeadline
+      ) {
         const remaining = Math.max(0, Math.ceil((game.countdownDeadline - Date.now()) / 1000));
         setCountdownSeconds(remaining);
       } else {
@@ -261,10 +407,59 @@ export default function App() {
       } else {
         setClaimWindowSeconds(0);
       }
-    }, 500);
+    }, 250);
 
     return () => clearInterval(timer);
   }, [game]);
+
+  // Fallback Polling Sync: Ensures live updates even if SSE is temporarily delayed
+  useEffect(() => {
+    const isLiveActive =
+      game?.status === 'starting_countdown' ||
+      game?.status === 'pre_game_countdown' ||
+      game?.status === 'running' ||
+      game?.status === 'in_progress' ||
+      game?.status === 'claim_review' ||
+      game?.status === 'checking_winners';
+
+    const intervalTime = isLiveActive ? 1500 : 5000;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/game/current');
+        if (res.ok) {
+          const latestGame: GameSession = await res.json();
+          setGame((prev) => {
+            if (!prev) return latestGame;
+            const ballsChanged = prev.calledNumbers?.length !== latestGame.calledNumbers?.length;
+            const statusChanged = prev.status !== latestGame.status;
+            const countdownChanged = prev.countdownDeadline !== latestGame.countdownDeadline;
+            const claimChanged = prev.claimWindowActive !== latestGame.claimWindowActive;
+            const winnersChanged = prev.winners?.length !== latestGame.winners?.length;
+            const regChanged = prev.registrationOpen !== latestGame.registrationOpen;
+
+            if (ballsChanged || statusChanged || countdownChanged || claimChanged || winnersChanged || regChanged) {
+              const newCount = latestGame.calledNumbers?.length || 0;
+              if (newCount > prevBallCountRef.current && prevBallCountRef.current > 0) {
+                const latest = latestGame.calledNumbers[newCount - 1];
+                if (latest) {
+                  soundManager.playBallPop();
+                  soundManager.speakCall(latest.letter, latest.number);
+                }
+              }
+              prevBallCountRef.current = newCount;
+              return latestGame;
+            }
+            return prev;
+          });
+        }
+      } catch {
+        // Silently ignore network hiccup
+      }
+    }, intervalTime);
+
+    return () => clearInterval(interval);
+  }, [game?.status]);
 
   // REQUIREMENT 3: Delete Bingo Card handler
   const handleConfirmDeleteCard = async (cardId: string) => {
@@ -629,6 +824,8 @@ export default function App() {
         appName={userPreferences.customAppName}
         user={currentUser}
         game={game}
+        countdownSeconds={countdownSeconds}
+        claimWindowSeconds={claimWindowSeconds}
         canUndo={undoStack.length > 0}
         canRedo={redoStack.length > 0}
         onUndo={handleUndo}
@@ -646,11 +843,55 @@ export default function App() {
           3. Live Announcements
           4. My Bingo Cards */}
       <main className="max-w-4xl mx-auto w-full p-3.5 space-y-3.5 flex-1 pb-24">
+        {/* Live Pre-Game Countdown Banner for Players */}
+        {countdownSeconds > 0 && (game?.status === 'starting_countdown' || game?.status === 'pre_game_countdown') && (
+          <div className="bg-gradient-to-r from-amber-500 via-amber-600 to-orange-600 text-white p-4 rounded-2xl shadow-lg border border-amber-400 flex items-center justify-between animate-in fade-in slide-in-from-top-2 duration-300">
+            <div className="flex items-center gap-3.5">
+              <div className="w-13 h-13 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center text-3xl font-black tabular-nums shadow-inner border border-white/30 animate-pulse">
+                {countdownSeconds}
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping" />
+                  <h2 className="font-extrabold text-base tracking-tight">The Game is Starting in {countdownSeconds}s!</h2>
+                </div>
+                <p className="text-amber-100 text-xs font-medium mt-0.5">
+                  Get ready! Automatic number calling will begin. Keep your cards ready.
+                </p>
+              </div>
+            </div>
+            <div className="hidden sm:flex flex-col items-end">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200">Winning Rule</span>
+              <span className="text-xs font-extrabold font-mono text-white bg-white/10 px-2.5 py-1 rounded-lg border border-white/20 mt-1">
+                {WINNING_RULE_LABELS[game?.activeWinningRule || 'horizontal_line'] || 'Horizontal Line'}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* 15-Second Winner Claim Window Banner for Players */}
+        {claimWindowSeconds > 0 && game?.claimWindowActive && (
+          <div className="bg-gradient-to-r from-purple-600 to-indigo-700 text-white p-4 rounded-2xl shadow-lg border border-purple-400 flex items-center justify-between animate-pulse">
+            <div className="flex items-center gap-3.5">
+              <div className="w-13 h-13 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center text-3xl font-black tabular-nums shadow-inner border border-white/30">
+                {claimWindowSeconds}
+              </div>
+              <div>
+                <h2 className="font-extrabold text-base tracking-tight">15-Second Winner Claim Window Open!</h2>
+                <p className="text-purple-100 text-xs font-medium mt-0.5">
+                  A player has claimed Bingo! If you have a winning pattern, click Claim Bingo before the window expires!
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* 1. Championship Information Panel (with embedded 75-board, Blocked Cards & Winners) */}
         <CollapsibleGameInfo
           game={game}
           calledNumbers={game?.calledNumbers || []}
           latestBall={game?.currentNumber || null}
+          countdownSeconds={countdownSeconds}
           onNumberClick={(num) => setSelectedBallNumber(num)}
           isHost={isHostOrAdmin}
           onSelectWinnerCard={(winner) => setSelectedWinner(winner)}
@@ -700,6 +941,8 @@ export default function App() {
           calledNumbers={(game?.calledNumbers || []).map((b) => b.number)}
           gameStatus={game?.status || 'setup'}
           registrationOpen={Boolean(game?.registrationOpen)}
+          claimWindowActive={Boolean(game?.claimWindowActive)}
+          claimWindowSeconds={claimWindowSeconds}
           gridColumns={userPreferences.gridColumns}
           sortBy={userPreferences.sortBy}
           onToggleMark={handleToggleMark}

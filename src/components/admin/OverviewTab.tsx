@@ -27,6 +27,9 @@ interface OverviewTabProps {
   onStartGame: () => void;
   onPauseGame: () => void;
   onResumeGame: () => void;
+  onStopGameRound?: () => void;
+  onOpenRegistration?: () => void;
+  onCloseRegistration?: () => void;
   onCallNumber: () => void;
   onToggleAutoCall: (active: boolean) => void;
   onToggleRegistration: (open: boolean) => void;
@@ -45,6 +48,9 @@ export function OverviewTab({
   onStartGame,
   onPauseGame,
   onResumeGame,
+  onStopGameRound,
+  onOpenRegistration,
+  onCloseRegistration,
   onCallNumber,
   onToggleAutoCall,
   onToggleRegistration,
@@ -103,7 +109,7 @@ export function OverviewTab({
           <div>
             <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">Prize Pool</span>
             <span className="text-xl font-black text-emerald-600 mt-0.5 block font-mono">
-              ${game.totalPrizePool.toFixed(2)}
+              ${(game.totalPrizePool ?? 0).toFixed(2)}
             </span>
           </div>
           <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
@@ -118,71 +124,144 @@ export function OverviewTab({
           <div>
             <h3 className="font-bold text-sm text-slate-900">{game.title}</h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Rule: <span className="font-semibold text-slate-800">{WINNING_RULE_LABELS[game.activeWinningRule]}</span> · Code: <span className="font-mono font-bold text-blue-600">{game.gameCode}</span>
+              Rule:{' '}
+              <span className="font-semibold text-slate-800">
+                {game.activeWinningRule === 'not_set' ? 'Not Set' : WINNING_RULE_LABELS[game.activeWinningRule]}
+              </span>{' '}
+              · Code: <span className="font-mono font-bold text-blue-600">{game.gameCode}</span> · Individual: $
+              {(game.individualPrize ?? 0).toFixed(2)} · Pool: ${(game.totalPrizePool ?? 0).toFixed(2)}
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            {game.status === 'in_progress' ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Stage 1: Unconfigured Game */}
+            {game.status === 'next_game' && (
               <button
                 type="button"
-                onClick={onPauseGame}
-                className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                onClick={() => onNavigate('setup')}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
               >
-                <Pause className="w-4 h-4" />
-                <span>Pause Game</span>
-              </button>
-            ) : game.status === 'paused' ? (
-              <button
-                type="button"
-                onClick={onResumeGame}
-                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
-              >
-                <Play className="w-4 h-4 fill-current" />
-                <span>Resume Game</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={onStartGame}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
-              >
-                <Play className="w-4 h-4 fill-current" />
-                <span>Start Game (15s Countdown)</span>
+                <Sparkles className="w-4 h-4" />
+                <span>Configure Game (Stage 1)</span>
               </button>
             )}
 
-            <button
-              type="button"
-              onClick={onCallNumber}
-              disabled={game.status !== 'in_progress'}
-              className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
-            >
-              <Hash className="w-4 h-4" />
-              <span>Call Next Ball</span>
-            </button>
+            {/* Stage 2: Setup Complete -> Open Registration */}
+            {game.status === 'setup' && onOpenRegistration && (
+              <button
+                type="button"
+                onClick={onOpenRegistration}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <CreditCard className="w-4 h-4" />
+                <span>Open Registration (Stage 2)</span>
+              </button>
+            )}
 
-            <button
-              type="button"
-              onClick={() => onToggleAutoCall(!game.autoCallActive)}
-              className={`px-3.5 py-2 font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer ${
-                game.autoCallActive
-                  ? 'bg-rose-600 text-white hover:bg-rose-700'
-                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-              }`}
-            >
-              <Radio className="w-4 h-4" />
-              <span>{game.autoCallActive ? 'Stop Auto' : 'Auto Caller'}</span>
-            </button>
+            {/* Stage 3: Registration Open -> Close Registration */}
+            {game.status === 'registration_open' && onCloseRegistration && (
+              <button
+                type="button"
+                onClick={onCloseRegistration}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>Close Registration (Stage 4)</span>
+              </button>
+            )}
 
-            <button
-              type="button"
-              onClick={onResetGame}
-              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition flex items-center gap-1 cursor-pointer"
-              title="Reset Round"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
+            {/* Stage 4: Registration Closed -> Start Game */}
+            {game.status === 'registration_closed' && (
+              <>
+                <button
+                  type="button"
+                  onClick={onStartGame}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Play className="w-4 h-4 fill-current" />
+                  <span>Start Game (Stage 5)</span>
+                </button>
+                {onOpenRegistration && (
+                  <button
+                    type="button"
+                    onClick={onOpenRegistration}
+                    className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+                  >
+                    Re-open Registration
+                  </button>
+                )}
+              </>
+            )}
+
+            {/* Active Running Gameplay */}
+            {(game.status === 'running' || game.status === 'in_progress') && (
+              <>
+                <button
+                  type="button"
+                  onClick={onPauseGame}
+                  className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Pause className="w-4 h-4" />
+                  <span>Pause</span>
+                </button>
+
+                {onStopGameRound && (
+                  <button
+                    type="button"
+                    onClick={onStopGameRound}
+                    className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <AlertTriangle className="w-4 h-4" />
+                    <span>Stop Bingo</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={onCallNumber}
+                  className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Hash className="w-4 h-4" />
+                  <span>Call Ball</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onToggleAutoCall(!game.autoCallActive)}
+                  className={`px-3.5 py-2 font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer ${
+                    game.autoCallActive
+                      ? 'bg-rose-600 text-white hover:bg-rose-700'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  <Radio className="w-4 h-4" />
+                  <span>{game.autoCallActive ? 'Stop Auto' : 'Auto Caller'}</span>
+                </button>
+              </>
+            )}
+
+            {/* Paused or Stopped State */}
+            {(game.status === 'paused' || game.status === 'stopped') && (
+              <>
+                <button
+                  type="button"
+                  onClick={onResumeGame}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Play className="w-4 h-4 fill-current" />
+                  <span>Resume Game</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={onResetGame}
+                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition flex items-center gap-1 cursor-pointer"
+                  title="Reset Round"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                  <span>Reset Round</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
 

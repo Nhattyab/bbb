@@ -6,6 +6,8 @@ interface HeaderProps {
   appName: string;
   user: User | null;
   game: GameSession | null;
+  countdownSeconds?: number;
+  claimWindowSeconds?: number;
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
@@ -20,6 +22,8 @@ export const Header: React.FC<HeaderProps> = ({
   appName,
   user,
   game,
+  countdownSeconds,
+  claimWindowSeconds,
   canUndo,
   canRedo,
   onUndo,
@@ -42,16 +46,16 @@ export const Header: React.FC<HeaderProps> = ({
               <h1 className="text-lg md:text-xl font-extrabold tracking-tight truncate drop-shadow-xs font-sans uppercase">
                 {appName || '10:20 BINGO'}
               </h1>
-              {game?.status === 'pre_game_countdown' && (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-400 text-amber-950 uppercase tracking-wider animate-pulse">
-                  <Clock className="w-2.5 h-2.5" />
-                  Starting Soon
+              {(game?.status === 'pre_game_countdown' || game?.status === 'starting_countdown') && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-black bg-amber-400 text-amber-950 uppercase tracking-wider animate-pulse shadow-xs">
+                  <Clock className="w-3 h-3" />
+                  {countdownSeconds && countdownSeconds > 0 ? `Starts in ${countdownSeconds}s` : 'Starting Soon'}
                 </span>
               )}
               {game?.claimWindowActive && (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-300 text-purple-950 uppercase tracking-wider animate-pulse">
-                  <Sparkles className="w-2.5 h-2.5" />
-                  Claim Window
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-black bg-purple-300 text-purple-950 uppercase tracking-wider animate-pulse shadow-xs">
+                  <Sparkles className="w-3 h-3" />
+                  {claimWindowSeconds && claimWindowSeconds > 0 ? `Claim: ${claimWindowSeconds}s` : 'Claim Window'}
                 </span>
               )}
               {game?.autoCallActive && (

@@ -8,6 +8,7 @@ import {
   Trophy,
   X,
   Sparkles,
+  Clock,
 } from 'lucide-react';
 import { BingoCard, BingoColumn, GameStatus } from '../types/bingo';
 import { COLUMN_COLORS } from '../utils/bingoRules';
@@ -17,6 +18,8 @@ interface BingoCardViewProps {
   calledNumbers: number[];
   gameStatus: GameStatus;
   registrationOpen: boolean;
+  claimWindowActive?: boolean;
+  claimWindowSeconds?: number;
   gridColumns: number;
   sortBy: 'id' | 'recent' | 'registration' | 'marked';
   onToggleMark: (cardId: string, row: number, col: number, currentMarked: boolean) => void;
@@ -36,6 +39,8 @@ export const BingoCardView: React.FC<BingoCardViewProps> = ({
   calledNumbers,
   gameStatus,
   registrationOpen,
+  claimWindowActive,
+  claimWindowSeconds,
   gridColumns,
   sortBy,
   onToggleMark,
@@ -95,8 +100,21 @@ export const BingoCardView: React.FC<BingoCardViewProps> = ({
   });
 
   const unregisteredCount = cards.filter((c) => !c.isRegistered).length;
+
+  const isPlayActive =
+    gameStatus === 'running' ||
+    gameStatus === 'in_progress' ||
+    gameStatus === 'claim_review' ||
+    gameStatus === 'checking_winners' ||
+    gameStatus === 'starting_countdown' ||
+    gameStatus === 'pre_game_countdown';
+
   const isClaimEligible =
-    gameStatus === 'in_progress' || gameStatus === 'checking_winners';
+    gameStatus === 'running' ||
+    gameStatus === 'in_progress' ||
+    gameStatus === 'claim_review' ||
+    gameStatus === 'checking_winners' ||
+    Boolean(claimWindowActive);
 
   // Responsive grid class based on gridColumns setting
   const getGridClass = () => {
@@ -125,7 +143,7 @@ export const BingoCardView: React.FC<BingoCardViewProps> = ({
         </div>
 
         {/* Register All Button */}
-        {unregisteredCount > 1 && registrationOpen && gameStatus !== 'in_progress' && (
+        {unregisteredCount > 1 && registrationOpen && !isPlayActive && (
           <button
             type="button"
             onClick={onRegisterAllCards}
@@ -192,7 +210,7 @@ export const BingoCardView: React.FC<BingoCardViewProps> = ({
                     </span>
                   )}
 
-                  {/* REQUIREMENT 3: Small 'X' delete button in top-right of every card */}
+                  {/* Small 'X' delete button in top-right of every card */}
                   <button
                     type="button"
                     onClick={() => onPromptDeleteCard(card)}
@@ -222,9 +240,7 @@ export const BingoCardView: React.FC<BingoCardViewProps> = ({
                   })}
                 </div>
 
-                {/* 5x5 Number Grid:
-                    REQUIREMENT 4: Calling a number must NEVER automatically mark, dot,
-                    or visually highlight numbers on player cards. Only player manual marking shows marked state! */}
+                {/* 5x5 Number Grid */}
                 <div className="grid grid-cols-5 gap-1">
                   {card.matrix.map((row, r) =>
                     row.map((val, c) => {
@@ -271,10 +287,10 @@ export const BingoCardView: React.FC<BingoCardViewProps> = ({
                 {!card.isRegistered && !card.isBlocked && (
                   <button
                     type="button"
-                    disabled={isRegistering || !registrationOpen || gameStatus === 'in_progress'}
+                    disabled={isRegistering || !registrationOpen || isPlayActive}
                     onClick={() => onRegisterCard(card.id)}
                     className={`w-full py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-2xs ${
-                      registrationOpen && gameStatus !== 'in_progress'
+                      registrationOpen && !isPlayActive
                         ? 'bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white cursor-pointer'
                         : 'bg-slate-200 text-slate-500 cursor-not-allowed'
                     }`}
@@ -283,30 +299,59 @@ export const BingoCardView: React.FC<BingoCardViewProps> = ({
                     <span>
                       {isRegistering
                         ? 'Registering...'
-                        : registrationOpen && gameStatus !== 'in_progress'
+                        : registrationOpen && !isPlayActive
                         ? 'Register Card'
                         : 'Registration Closed'}
                     </span>
                   </button>
                 )}
 
+                {/* Prominent BINGO Claim Button for Registered Card during Active Game */}
                 {card.isRegistered && !card.isBlocked && isClaimEligible && (
                   <button
                     type="button"
                     disabled={isClaiming}
                     onClick={() => onClaimBingo(card.id)}
-                    className="w-full py-2 px-3 rounded-xl font-black text-xs uppercase tracking-wider bg-gradient-to-r from-amber-500 via-amber-600 to-indigo-600 hover:from-amber-600 hover:to-indigo-700 active:scale-98 text-white shadow-md flex items-center justify-center gap-1.5 cursor-pointer animate-pulse"
+                    className="w-full py-2.5 px-3 rounded-xl font-black text-sm uppercase tracking-widest bg-gradient-to-r from-amber-500 via-orange-500 to-rose-600 hover:from-amber-600 hover:to-rose-700 active:scale-95 text-white shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all border-2 border-amber-300 ring-2 ring-amber-400/50 hover:shadow-lg animate-pulse"
                   >
-                    <Trophy className="w-3.5 h-3.5 fill-current" />
-                    <span>{isClaiming ? 'Verifying Claim...' : 'Claim Bingo!'}</span>
+                    <Trophy className="w-4 h-4 fill-current text-yellow-200" />
+                    <span>
+                      {isClaiming
+                        ? 'VERIFYING...'
+                        : claimWindowActive && claimWindowSeconds !== undefined && claimWindowSeconds > 0
+                        ? `BINGO (${claimWindowSeconds}s)`
+                        : 'BINGO'}
+                    </span>
                   </button>
                 )}
 
-                {/* REQUIREMENT 11: Simplified blocked card message */}
-                {card.isBlocked && (
-                  <div className="text-center text-[11px] font-semibold text-rose-700 py-1.5 bg-rose-50 border border-rose-200 rounded-lg">
-                    Card is blocked.
+                {/* Pre-game Countdown state for Registered Card */}
+                {card.isRegistered && !card.isBlocked && (gameStatus === 'starting_countdown' || gameStatus === 'pre_game_countdown') && (
+                  <div className="w-full py-2 px-3 rounded-xl font-semibold text-xs bg-amber-50 text-amber-800 border border-amber-200 text-center flex items-center justify-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-amber-600 animate-spin" />
+                    <span>Registered · BINGO button activates when game starts</span>
                   </div>
+                )}
+
+                {/* Registered state prior to game start */}
+                {card.isRegistered && !card.isBlocked && !isClaimEligible && gameStatus !== 'starting_countdown' && gameStatus !== 'pre_game_countdown' && (
+                  <div className="w-full py-2 px-3 rounded-xl font-bold text-xs bg-emerald-50 text-emerald-800 border border-emerald-200 text-center flex items-center justify-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Registered for this Game</span>
+                  </div>
+                )}
+
+                {/* Blocked Card: Disabled BINGO Claim Button as requested */}
+                {card.isBlocked && (
+                  <button
+                    type="button"
+                    disabled={true}
+                    className="w-full py-2.5 px-3 rounded-xl font-black text-sm uppercase tracking-widest bg-slate-200 text-slate-400 border border-slate-300 flex items-center justify-center gap-2 cursor-not-allowed select-none opacity-80"
+                    title="This card is blocked and cannot claim Bingo."
+                  >
+                    <Trophy className="w-4 h-4 text-slate-400" />
+                    <span>BINGO (BLOCKED)</span>
+                  </button>
                 )}
               </div>
             </div>

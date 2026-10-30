@@ -77,7 +77,7 @@ export const HostControlsModal: React.FC<HostControlsModalProps> = ({
             <button
               type="button"
               onClick={onCallNextNumber}
-              disabled={game.status !== 'in_progress'}
+              disabled={game.status !== 'in_progress' && game.status !== 'running'}
               className="py-2.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
             >
               <Radio className="w-4 h-4" />

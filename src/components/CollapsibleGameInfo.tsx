@@ -22,6 +22,7 @@ interface CollapsibleGameInfoProps {
   game: GameSession | null;
   calledNumbers: BingoBall[];
   latestBall: BingoBall | null;
+  countdownSeconds?: number;
   onNumberClick?: (number: number) => void;
   isHost?: boolean;
   onSelectWinnerCard: (winner: Winner) => void;
@@ -32,6 +33,7 @@ export const CollapsibleGameInfo: React.FC<CollapsibleGameInfoProps> = ({
   game,
   calledNumbers,
   latestBall,
+  countdownSeconds,
   onNumberClick,
   isHost,
   onSelectWinnerCard,
@@ -51,30 +53,45 @@ export const CollapsibleGameInfo: React.FC<CollapsibleGameInfoProps> = ({
 
   const getStatusBadge = (status: string) => {
     switch (status) {
+      case 'next_game':
+        return { label: 'Next Game', bg: 'bg-slate-100 text-slate-700 border-slate-300' };
+      case 'setup':
+        return { label: 'Setup Mode', bg: 'bg-blue-50 text-blue-700 border-blue-200' };
+      case 'registration_open':
+        return { label: 'Registration Open', bg: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+      case 'registration_closed':
+        return { label: 'Registration Closed', bg: 'bg-amber-50 text-amber-800 border-amber-300' };
+      case 'starting_countdown':
+      case 'pre_game_countdown':
+        return {
+          label: countdownSeconds && countdownSeconds > 0 ? `Starting in ${countdownSeconds}s` : 'Starting Soon',
+          bg: 'bg-amber-100 text-amber-900 border-amber-300 animate-pulse font-black',
+        };
+      case 'running':
       case 'in_progress':
         return { label: 'In Progress', bg: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
-      case 'pre_game_countdown':
-        return { label: 'Starting in 15s', bg: 'bg-amber-100 text-amber-900 border-amber-300 animate-pulse' };
+      case 'paused':
+        return { label: 'Paused', bg: 'bg-amber-50 text-amber-700 border-amber-200' };
+      case 'stopped':
+        return { label: 'Stopped', bg: 'bg-rose-50 text-rose-700 border-rose-200' };
+      case 'claim_review':
       case 'checking_winners':
         return { label: 'Claim Window Open', bg: 'bg-purple-100 text-purple-900 border-purple-300 animate-pulse' };
-      case 'ready_to_start':
-        return { label: 'Ready to Start', bg: 'bg-indigo-50 text-indigo-700 border-indigo-200' };
-      case 'registration_open':
-        return { label: 'Registration Open', bg: 'bg-blue-50 text-blue-700 border-blue-200' };
+      case 'game_completed':
       case 'winner_confirmed':
-        return { label: 'Winner Confirmed', bg: 'bg-amber-50 text-amber-800 border-amber-300' };
       case 'completed':
-        return { label: 'Completed', bg: 'bg-slate-100 text-slate-700 border-slate-300' };
+        return { label: 'Game Completed', bg: 'bg-amber-100 text-amber-900 border-amber-300' };
       case 'cancelled':
         return { label: 'Cancelled', bg: 'bg-rose-50 text-rose-700 border-rose-200' };
-      case 'setup':
       default:
-        return { label: 'Setup Mode', bg: 'bg-slate-50 text-slate-700 border-slate-200' };
+        return { label: status.replace(/_/g, ' '), bg: 'bg-slate-50 text-slate-700 border-slate-200' };
     }
   };
 
   const statusInfo = getStatusBadge(game.status);
-  const ruleLabel = WINNING_RULE_LABELS[game.activeWinningRule] || game.activeWinningRule;
+  const ruleLabel = game.activeWinningRule === 'not_set'
+    ? 'Not Set'
+    : WINNING_RULE_LABELS[game.activeWinningRule] || game.activeWinningRule;
 
   const handleCopyCode = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -108,7 +125,7 @@ export const CollapsibleGameInfo: React.FC<CollapsibleGameInfoProps> = ({
               <span>·</span>
               <span className="text-amber-700 font-semibold truncate">{ruleLabel.split('(')[0].trim()}</span>
               <span>·</span>
-              <span>Pool: ${game.totalPrizePool.toFixed(2)}</span>
+              <span>Pool: ${(game.totalPrizePool ?? 0).toFixed(2)}</span>
             </div>
           </div>
         </div>
@@ -145,15 +162,15 @@ export const CollapsibleGameInfo: React.FC<CollapsibleGameInfoProps> = ({
               </div>
               <div className="font-bold text-slate-900 text-sm mt-0.5">{ruleLabel}</div>
               <div className="text-[11px] text-slate-600 mt-1">
-                The first player to claim this exact verified pattern on a registered card triggers the 15-second claim window. Center FREE counts as covered.
+                {game.activeWinningRule === 'not_set'
+                  ? 'The tournament host has not configured the winning rule for this game yet.'
+                  : 'The first player to claim this exact verified pattern on a registered card triggers the 15-second claim window. Center FREE counts as covered.'}
               </div>
             </div>
           </div>
 
-          {/* Key Metric Grid:
-              REQUIREMENT 1: Remove Registered Players and Organizer from player view.
-              Only show if isHost is true! */}
-          <div className={`grid ${isHost ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2 sm:grid-cols-2'} gap-2.5`}>
+          {/* Key Metric Grid: Separate Individual Prize and Total Prize Fields */}
+          <div className={`grid ${isHost ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3 sm:grid-cols-3'} gap-2.5`}>
             <div className="bg-white p-2.5 rounded-xl border border-slate-200/70 shadow-2xs">
               <div className="flex items-center gap-1.5 text-slate-500 mb-1">
                 <Ticket className="w-3.5 h-3.5 text-indigo-600" />
@@ -166,35 +183,35 @@ export const CollapsibleGameInfo: React.FC<CollapsibleGameInfoProps> = ({
 
             <div className="bg-white p-2.5 rounded-xl border border-slate-200/70 shadow-2xs">
               <div className="flex items-center gap-1.5 text-slate-500 mb-1">
+                <Trophy className="w-3.5 h-3.5 text-blue-500" />
+                <span className="font-medium">Individual Prize</span>
+              </div>
+              <div className="text-sm font-bold text-blue-600 font-mono">
+                ${(game.individualPrize ?? 0).toFixed(2)}
+              </div>
+            </div>
+
+            <div className="bg-white p-2.5 rounded-xl border border-slate-200/70 shadow-2xs">
+              <div className="flex items-center gap-1.5 text-slate-500 mb-1">
                 <Trophy className="w-3.5 h-3.5 text-amber-500" />
                 <span className="font-medium">Total Prize</span>
               </div>
               <div className="text-sm font-bold text-amber-600 font-mono">
-                ${game.totalPrizePool.toFixed(2)}
+                ${(game.totalPrizePool ?? 0).toFixed(2)}
               </div>
             </div>
 
             {/* ONLY rendered for authorized Host / Admin view */}
             {isHost && (
-              <>
-                <div className="bg-white p-2.5 rounded-xl border border-slate-200/70 shadow-2xs">
-                  <div className="flex items-center gap-1.5 text-slate-500 mb-1">
-                    <Users className="w-3.5 h-3.5 text-blue-600" />
-                    <span className="font-medium">Registered</span>
-                  </div>
-                  <div className="text-sm font-bold text-slate-900 font-mono">
-                    {game.registeredPlayersCount} Players
-                  </div>
+              <div className="bg-white p-2.5 rounded-xl border border-slate-200/70 shadow-2xs">
+                <div className="flex items-center gap-1.5 text-slate-500 mb-1">
+                  <Users className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="font-medium">Registered</span>
                 </div>
-
-                <div className="bg-white p-2.5 rounded-xl border border-slate-200/70 shadow-2xs">
-                  <div className="flex items-center gap-1.5 text-slate-500 mb-1">
-                    <UserIcon className="w-3.5 h-3.5 text-purple-600" />
-                    <span className="font-medium">Organizer</span>
-                  </div>
-                  <div className="text-sm font-bold text-slate-900 truncate">{game.hostName}</div>
+                <div className="text-sm font-bold text-slate-900 font-mono">
+                  {game.registeredPlayersCount} Players
                 </div>
-              </>
+              </div>
             )}
           </div>
 

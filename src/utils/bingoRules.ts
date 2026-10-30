@@ -17,6 +17,7 @@ export const COLUMN_COLORS: Record<BingoColumn, { bg: string; text: string; bord
 };
 
 export const WINNING_RULE_LABELS: Record<WinningPattern, string> = {
+  not_set: 'Not Set',
   horizontal_line: 'Horizontal Line (Any complete row)',
   vertical_line: 'Vertical Line (Any complete column)',
   diagonal_line: 'Diagonal Line (Corner to corner)',
@@ -226,27 +227,37 @@ export function checkWinningPattern(
 /**
  * Server-side / Authoritative validation of Bingo claim against official called numbers and active rule.
  * Free space center is always considered covered.
+ * Reconciles persisted markings and client markings against official called numbers to prevent race conditions.
  */
 export function verifyClaimAuthoritative(
   card: BingoCard,
   officialCalledNumbers: number[],
   requiredPattern: WinningPattern,
-  autoCompleteEnabled: boolean = false
-): { valid: boolean; reason?: string; winningPatternName?: string; winningCoordinates?: [number, number][] } {
+  autoCompleteEnabled: boolean = false,
+  clientMarked?: boolean[][]
+): {
+  valid: boolean;
+  reason: string;
+  diagnostics?: string;
+  winningPatternName?: string;
+  winningCoordinates?: [number, number][];
+} {
   if (card.isBlocked) {
-    return { valid: false, reason: 'Card is blocked.' };
+    return { valid: false, reason: 'Card is blocked.', diagnostics: 'Card was already flagged as blocked.' };
   }
 
   if (!card.isRegistered) {
-    return { valid: false, reason: 'This card was not registered for this game session.' };
+    return { valid: false, reason: 'Card is blocked.', diagnostics: 'Card is not registered for the active game session.' };
   }
 
   const calledSet = new Set(officialCalledNumbers);
 
-  // A cell is marked IF AND ONLY IF:
+  // A cell is verified marked IF AND ONLY IF:
   // 1. It is the center FREE space (r=2, c=2 or 'FREE') OR
-  // 2. The number was officially called AND it is marked on this card
+  // 2. The number was officially called AND (it is marked on this card OR marked on client)
   const verifiedMarked: boolean[][] = [];
+  const uncalledMarkedDetails: string[] = [];
+
   for (let r = 0; r < 5; r++) {
     const rowMarked: boolean[] = [];
     for (let c = 0; c < 5; c++) {
@@ -256,8 +267,13 @@ export function verifyClaimAuthoritative(
         rowMarked.push(true);
       } else {
         const isCalled = typeof val === 'number' && calledSet.has(val);
-        const isPlayerMarked = Boolean(card.marked?.[r]?.[c]);
-        rowMarked.push(isCalled && isPlayerMarked);
+        const isPlayerMarked = Boolean(card.marked?.[r]?.[c] || clientMarked?.[r]?.[c]);
+        const cellCovered = isCalled && isPlayerMarked;
+        rowMarked.push(cellCovered);
+
+        if (isPlayerMarked && !isCalled) {
+          uncalledMarkedDetails.push(`Cell [${r},${c}] (#${val}) marked but NOT called`);
+        }
       }
     }
     verifiedMarked.push(rowMarked);
@@ -265,14 +281,20 @@ export function verifyClaimAuthoritative(
 
   const patternResult = checkWinningPattern(verifiedMarked, requiredPattern);
   if (!patternResult.isWon) {
+    const diagnosticMsg = `Pattern '${requiredPattern}' not satisfied. Officially called count: ${officialCalledNumbers.length}. ${
+      uncalledMarkedDetails.length > 0 ? `Uncalled marks: ${uncalledMarkedDetails.join(', ')}. ` : ''
+    }Required coordinates for pattern incomplete.`;
+
     return {
       valid: false,
       reason: 'Card is blocked.',
+      diagnostics: diagnosticMsg,
     };
   }
 
   return {
     valid: true,
+    reason: 'Valid Bingo claim confirmed.',
     winningPatternName: patternResult.patternName,
     winningCoordinates: patternResult.winningCoordinates,
   };
